@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from local_document_search.converters import ConverterFactory
 from local_document_search.converters.base import ConversionResult, ConversionStatus
 from local_document_search.exceptions import ConfigurationError, IndexCancelledError
-from local_document_search.file_types import SUPPORTED_FILE_EXTENSIONS
+from local_document_search.file_types.registry import SUPPORTED_FILE_EXTENSIONS
 from local_document_search.persistence.repositories import (
     DocumentRepository,
     DocumentUpsertInput,

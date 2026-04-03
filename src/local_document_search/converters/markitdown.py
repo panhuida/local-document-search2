@@ -379,7 +379,7 @@ def _build_legacy_office_metadata_fallback(source_path: Path, detail_message: st
             "",
             "当前文件属于旧版二进制 Office 格式，本次回退为元数据索引。",
             f"回退原因：{detail_message}",
-            "如需正文提取，请确认本机已安装 Microsoft Office 与 pywin32。",
+            "如需正文提取，请检查 Office / COM 是否可用，并确认该文件能在 Office 中手工正常打开。",
         ]
     )
 

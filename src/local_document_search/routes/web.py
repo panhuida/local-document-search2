@@ -11,7 +11,8 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from flask.typing import ResponseReturnValue
 
 from local_document_search import ServiceContainer
-from local_document_search.file_types import SUPPORTED_FILE_EXTENSIONS, build_file_type_groups
+from local_document_search.file_types.presentation import build_file_type_groups
+from local_document_search.file_types.registry import SUPPORTED_FILE_EXTENSIONS
 from local_document_search.persistence.database import initialize_database
 from local_document_search.services import (
     CleanRequest,

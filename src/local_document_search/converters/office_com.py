@@ -145,8 +145,11 @@ def _convert_with_word(
         word_document = word_document_instance
         word_document_instance.SaveAs2(str(target_path), FileFormat=definition.save_format)
     except Exception as exc:
+        detail_message = _extract_office_com_detail(exc)
         raise LegacyOfficeComConversionError(
-            "调用 Word / COM 转换旧版文档失败，请确认本机已安装可用的 Microsoft Word。"
+            "调用 Word / COM 转换旧版文档失败。"
+            f" 详细原因：{detail_message}"
+            " 请确认本机已安装可用的 Microsoft Word，并确认该文件能在 Word 中手工正常打开。"
         ) from exc
     finally:
         if word_document is not None:
@@ -177,14 +180,16 @@ def _convert_with_excel(
         excel_application = excel_application_instance
         excel_application_instance.Visible = False
         excel_application_instance.DisplayAlerts = False
-        workbook_instance = excel_application_instance.Workbooks.Open(
-            str(source_path), ReadOnly=True
-        )
+        workbook_instance = _open_excel_workbook(excel_application_instance, source_path)
         workbook = workbook_instance
         workbook_instance.SaveAs(str(target_path), FileFormat=definition.save_format)
     except Exception as exc:
+        detail_message = _extract_office_com_detail(exc)
         raise LegacyOfficeComConversionError(
-            "调用 Excel / COM 转换旧版表格失败，请确认本机已安装可用的 Microsoft Excel。"
+            "调用 Excel / COM 转换旧版表格失败。"
+            f" 详细原因：{detail_message}"
+            " 如文件可在 Excel 中手工打开，请先另存为 .xlsx 后再索引；"
+            " 如 Excel 直接拦截，请检查信任中心、受信任位置或文件校验限制。"
         ) from exc
     finally:
         if workbook is not None:
@@ -222,9 +227,12 @@ def _convert_with_powerpoint(
         presentation = presentation_instance
         presentation_instance.SaveAs(str(target_path), definition.save_format)
     except Exception as exc:
+        detail_message = _extract_office_com_detail(exc)
         raise LegacyOfficeComConversionError(
-            "调用 PowerPoint / COM 转换旧版演示文稿失败，"
-            "请确认本机已安装可用的 Microsoft PowerPoint。"
+            "调用 PowerPoint / COM 转换旧版演示文稿失败。"
+            f" 详细原因：{detail_message}"
+            " 请确认本机已安装可用的 Microsoft PowerPoint，"
+            "并确认该文件能在 PowerPoint 中手工正常打开。"
         ) from exc
     finally:
         if presentation is not None:
@@ -237,3 +245,39 @@ def _convert_with_powerpoint(
                 powerpoint_application.Quit()
             except Exception:
                 pass
+
+
+def _open_excel_workbook(excel_application: _ComObject, source_path: Path) -> _ComObject:
+    """按普通打开、修复打开、提取数据三档策略尝试打开旧版 Excel 文件。"""
+
+    attempt_options: tuple[dict[str, object], ...] = (
+        {"ReadOnly": True},
+        {"ReadOnly": True, "CorruptLoad": 1},
+        {"ReadOnly": True, "CorruptLoad": 2},
+    )
+    detail_messages: list[str] = []
+
+    for open_options in attempt_options:
+        try:
+            return excel_application.Workbooks.Open(str(source_path), **open_options)
+        except Exception as exc:
+            detail_messages.append(_extract_office_com_detail(exc))
+
+    normalized_messages = tuple(dict.fromkeys(detail_messages))
+    combined_detail = (
+        "；".join(normalized_messages) if normalized_messages else "Excel 未返回可用错误信息。"
+    )
+    raise LegacyOfficeComConversionError(combined_detail)
+
+
+def _extract_office_com_detail(exc: Exception) -> str:
+    """尽量从 COM 异常中提取面向用户可读的细节。"""
+
+    if len(exc.args) >= 3 and isinstance(exc.args[2], tuple) and len(exc.args[2]) >= 3:
+        raw_detail = exc.args[2][2]
+        if isinstance(raw_detail, str) and raw_detail.strip():
+            return raw_detail.strip()
+    message = str(exc).strip()
+    if message:
+        return message
+    return exc.__class__.__name__

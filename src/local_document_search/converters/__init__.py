@@ -16,7 +16,7 @@ from local_document_search.converters.markitdown import (
 )
 from local_document_search.converters.xmind import XMindConverter
 from local_document_search.exceptions import UnsupportedFileTypeError
-from local_document_search.file_types import (
+from local_document_search.file_types.registry import (
     SUPPORTED_FILE_EXTENSIONS,
     FileTypeHandlerKind,
     get_file_type_definition,

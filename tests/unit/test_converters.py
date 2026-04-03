@@ -19,7 +19,11 @@ from local_document_search.converters.markitdown import (
     LegacyBinaryOfficeConverter,
     MarkItDownConverter,
 )
-from local_document_search.converters.office_com import LegacyOfficeComUnavailableError
+from local_document_search.converters.office_com import (
+    LegacyOfficeComConversionError,
+    LegacyOfficeComUnavailableError,
+    _extract_office_com_detail,
+)
 
 
 def test_converter_factory_returns_expected_converter() -> None:
@@ -116,7 +120,56 @@ def test_legacy_binary_office_converter_falls_back_to_metadata(tmp_path: Path) -
     assert result.conversion_type is ConversionType.STRUCTURED_TO_MD
     assert result.content_markdown is not None
     assert "旧版二进制 Office 格式" in result.content_markdown
-    assert "pywin32" in result.content_markdown
+    assert "Office 中手工正常打开" in result.content_markdown
+
+
+def test_legacy_binary_office_converter_preserves_specific_com_failure_reason(
+    tmp_path: Path,
+) -> None:
+    """验证旧版 Office 回退文案会保留具体的 COM 失败原因。"""
+
+    xls_file = tmp_path / "legacy.xls"
+    xls_file.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+
+    @contextmanager
+    def fake_office_converter(source_path: Path):
+        """模拟 Excel COM 拒绝打开文件。"""
+
+        del source_path
+        raise LegacyOfficeComConversionError(
+            "调用 Excel / COM 转换旧版表格失败。 详细原因："
+            "Office 检测到此文件存在一个问题。要帮助保护您的计算机，不能打开此文件。"
+        )
+        yield  # pragma: no cover
+
+    result = LegacyBinaryOfficeConverter(office_converter=fake_office_converter).convert(xls_file)
+
+    assert result.status is ConversionStatus.COMPLETED
+    assert result.content_markdown is not None
+    assert "不能打开此文件" in result.content_markdown
+    assert "Office 中手工正常打开" in result.content_markdown
+
+
+def test_extract_office_com_detail_returns_inner_com_message() -> None:
+    """验证 COM 异常会优先提取 Office 返回的内部错误信息。"""
+
+    exc = Exception(
+        -2147352567,
+        "发生意外。",
+        (
+            0,
+            "Microsoft Excel",
+            "Office 检测到此文件存在一个问题。要帮助保护您的计算机，不能打开此文件。",
+            "xlmain11.chm",
+            0,
+            -2146827284,
+        ),
+        None,
+    )
+
+    assert _extract_office_com_detail(exc) == (
+        "Office 检测到此文件存在一个问题。要帮助保护您的计算机，不能打开此文件。"
+    )
 
 
 def test_markitdown_converter_reads_subprocess_payload(tmp_path: Path, monkeypatch) -> None:

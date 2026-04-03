@@ -186,3 +186,20 @@ local-document-search/
 
 `doc` / `xls` / `ppt` 的正文提取依赖 Windows 本机 Microsoft Office 与 `pywin32`。如果环境不满足，系统会自动回退为元数据索引，而不是整次索引失败。
 
+### 回退为元数据索引的文件如何重新转换？
+
+走强制重新索引。
+
+CLI：
+
+```shell
+uv run python doc-cli.py index "D:\documents\历史" --force --type xls
+```
+
+Web：
+
+  - 打开“文档索引”
+  - 输入这个 .xls 所在目录
+  - 勾选“强制重新索引”
+  - 文件类型只选 xls
+  - 再执行索引
