@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}文档预览{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-slate-50">
+  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+    <section class="fade-up rounded-[2rem] bg-white p-8 shadow-[0_18px_60px_rgba(15,23,42,0.07)]">
+      <div class="flex flex-col gap-5 border-b border-slate-200 pb-5 md:flex-row md:items-start md:justify-between">
+        <div class="min-w-0">
+          <h1 class="break-words text-2xl font-semibold text-slate-900 sm:text-3xl">{{ result.file_name }}</h1>
+          <p class="mt-3 break-all font-mono text-xs text-slate-500">{{ result.file_path }}</p>
+        </div>
+        <div class="flex shrink-0 flex-wrap gap-3 md:justify-end">
+          <a href="{{ url_for('web.search_page') }}" class="btn btn-secondary">返回搜索</a>
+          <a href="{{ url_for('web.open_document', document_id=result.document_id) }}" data-system-open class="btn btn-secondary">打开文件</a>
+          <a href="{{ url_for('web.open_document', document_id=result.document_id, parent=1) }}" data-system-open class="btn btn-secondary">打开所在目录</a>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-wrap items-center gap-2 border-b border-slate-200 pb-4">
+        <button
+          type="button"
+          class="nav-tab nav-tab-active"
+          data-preview-tab-trigger="rendered"
+        >
+          渲染预览
+        </button>
+        <button
+          type="button"
+          class="nav-tab nav-tab-inactive"
+          data-preview-tab-trigger="markdown"
+        >
+          Markdown 原文
+        </button>
+      </div>
+
+      <section data-preview-tab-panel="rendered" class="mt-6">
+        <article class="preview-body max-w-none rounded-[1.75rem] border border-slate-200 bg-slate-50 px-6 py-7 text-[15px] leading-7 text-slate-800">
+          {% if result.content_html %}
+          {{ result.content_html | safe }}
+          {% else %}
+          <p class="text-sm text-slate-500">当前文档没有可展示的 Markdown 内容。</p>
+          {% endif %}
+        </article>
+      </section>
+
+      <section data-preview-tab-panel="markdown" class="mt-6 hidden">
+        <div class="rounded-[1.75rem] border border-slate-200 bg-slate-950 px-6 py-7">
+          <pre class="overflow-x-auto whitespace-pre-wrap break-words text-sm leading-7 text-slate-100"><code>{{ result.content_markdown | e }}</code></pre>
+        </div>
+      </section>
+    </section>
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const triggers = Array.from(document.querySelectorAll("[data-preview-tab-trigger]"));
+    const panels = Array.from(document.querySelectorAll("[data-preview-tab-panel]"));
+    if (triggers.length === 0 || panels.length === 0) {
+      return;
+    }
+
+    const activateTab = (targetTab) => {
+      triggers.forEach((trigger) => {
+        if (!(trigger instanceof HTMLElement)) {
+          return;
+        }
+        const isActive = trigger.dataset.previewTabTrigger === targetTab;
+        trigger.classList.toggle("nav-tab-active", isActive);
+        trigger.classList.toggle("nav-tab-inactive", !isActive);
+      });
+
+      panels.forEach((panel) => {
+        if (!(panel instanceof HTMLElement)) {
+          return;
+        }
+        panel.classList.toggle("hidden", panel.dataset.previewTabPanel !== targetTab);
+      });
+    };
+
+    triggers.forEach((trigger) => {
+      trigger.addEventListener("click", () => {
+        if (!(trigger instanceof HTMLElement)) {
+          return;
+        }
+        activateTab(trigger.dataset.previewTabTrigger ?? "rendered");
+      });
+    });
+  })();
+</script>
+{% endblock %}

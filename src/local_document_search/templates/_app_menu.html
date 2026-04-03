@@ -1,0 +1,51 @@
+<div class="relative" data-app-menu-root>
+  <button
+    type="button"
+    data-app-menu-trigger
+    aria-expanded="false"
+    aria-haspopup="true"
+    aria-label="打开应用菜单"
+    class="btn-icon p-3"
+  >
+    <span class="grid grid-cols-3 gap-1.5">
+      {% for _ in range(9) %}
+      <span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span>
+      {% endfor %}
+    </span>
+  </button>
+
+  <div
+    data-app-menu-panel
+    class="app-surface absolute right-0 top-16 hidden w-[320px] rounded-[1.75rem] border border-slate-200 bg-white p-4 shadow-[0_24px_64px_rgba(15,23,42,0.18)]"
+  >
+    <div class="mb-3 px-2">
+      <p class="text-sm font-semibold text-slate-900">本地文档搜索助手</p>
+      <p class="mt-1 text-xs leading-5 text-slate-500">索引管理、错误处理和清理入口统一收纳在这里。</p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      <a
+        href="{{ url_for('web.index_page') }}"
+        class="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-slate-100"
+      >
+        <p class="text-sm font-semibold text-slate-900">文档索引</p>
+        <p class="mt-1 text-xs leading-5 text-slate-500">添加目录、递归扫描、强制重建。</p>
+      </a>
+      <a
+        href="{{ url_for('web.errors_page') }}"
+        class="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-slate-100"
+      >
+        <p class="text-sm font-semibold text-slate-900">错误记录</p>
+        <p class="mt-1 text-xs leading-5 text-slate-500">查看失败文档并发起重试。</p>
+      </a>
+      <a
+        href="{{ url_for('web.clean_page') }}"
+        class="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 transition hover:border-slate-300 hover:bg-slate-100"
+      >
+        <p class="text-sm font-semibold text-slate-900">清理索引</p>
+        <p class="mt-1 text-xs leading-5 text-slate-500">扫描孤儿记录并安全删除。</p>
+      </a>
+
+    </div>
+  </div>
+</div>

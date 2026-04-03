@@ -1,0 +1,537 @@
+{% extends "base.html" %}
+{% block title %}文档索引{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-slate-50">
+  <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <a href="{{ url_for('web.search_page') }}" class="shrink-0 text-[2rem] font-medium tracking-[-0.08em]">
+          <span class="text-brand-blue">本</span><span class="text-brand-red">地</span><span class="text-brand-yellow">文</span><span class="text-brand-blue">档</span><span class="text-brand-green">搜</span><span class="text-brand-red">索</span><span class="text-brand-blue">助</span><span class="text-brand-green">手</span>
+        </a>
+        <a href="{{ url_for('web.search_page') }}" class="btn btn-secondary">返回搜索</a>
+      </div>
+      <div class="mt-4 border-t border-slate-100 pt-4">
+        {% set active_section = "index" %}
+        {% include "_management_tabs.html" %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
+    <section class="fade-up rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm font-medium text-slate-500">提交后会在后台执行索引，页面会持续显示任务进度。</p>
+        {% if initialized %}
+        <div class="badge badge-success">数据库已初始化</div>
+        {% endif %}
+      </div>
+
+      {% if error_message %}
+      <div class="alert alert-danger mt-4">{{ error_message }}</div>
+      {% endif %}
+
+      {% set current_path = task.requested_paths[0] if task and task.requested_paths else '' %}
+      <form method="post" class="mt-5 space-y-5" data-index-form>
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(220px,0.9fr)]">
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-700">目录路径</span>
+            <input
+              name="path"
+              type="text"
+              placeholder="例如：D:\documents\历史"
+              value="{{ current_path }}"
+              class="field field-accent-blue"
+            >
+          </label>
+
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-700">修改时间起点</span>
+            <input
+              name="modified_since"
+              type="datetime-local"
+              class="field field-accent-blue"
+            >
+          </label>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-5 rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3">
+          <label class="inline-flex items-center gap-3 text-sm text-slate-700">
+            <input
+              name="recursive"
+              type="checkbox"
+              {% if not task or task.recursive %}checked{% endif %}
+              class="h-4 w-4 rounded border-slate-300 text-brand-blue"
+            >
+            递归扫描子目录
+          </label>
+          <label class="inline-flex items-center gap-3 text-sm text-slate-700">
+            <input
+              name="force"
+              type="checkbox"
+              {% if task and task.force %}checked{% endif %}
+              class="h-4 w-4 rounded border-slate-300 text-brand-blue"
+            >
+            强制重新索引
+          </label>
+        </div>
+
+        <div class="rounded-[1.25rem] border border-slate-200 p-4">
+          <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p class="text-sm font-medium text-slate-700">文件类型</p>
+              <p class="mt-1 text-xs text-slate-400">按类别筛选，至少选择一种</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2" data-file-type-panel>
+              <button type="button" class="btn btn-secondary btn-sm" data-file-type-action="select-all">全选</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-file-type-action="clear-all">全不选</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-file-type-action="invert">反选</button>
+            </div>
+          </div>
+          <div class="grid gap-4 xl:grid-cols-2">
+            {% for group in file_type_groups %}
+            <section class="rounded-[1.125rem] border border-slate-200 bg-slate-50/80 p-4">
+              <div class="mb-3">
+                <h3 class="text-sm font-semibold text-slate-800">{{ group.title }}</h3>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                {% for item in group.options %}
+                <label class="inline-flex items-center gap-3 rounded-[1rem] border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
+                  <input
+                    name="file_types"
+                    value="{{ item.value }}"
+                    type="checkbox"
+                    {% if item.value in selected_file_types %}checked{% endif %}
+                    class="h-4 w-4 rounded border-slate-300 text-brand-blue"
+                    data-file-type-checkbox
+                  >
+                  <span>{{ item.label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </section>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            class="btn btn-primary btn-main-action"
+            data-index-submit
+            {% if task and task.is_active %}disabled aria-disabled="true"{% endif %}
+          >
+            {% if task and task.is_active %}索引中...{% else %}开始索引{% endif %}
+          </button>
+        </div>
+      </form>
+    </section>
+
+    {% if task %}
+    <section
+      class="fade-up fade-delay-1 mt-6 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6"
+      data-index-task-root
+      data-status-url="{{ url_for('web.index_task_status', task_id=task.task_id) }}"
+      data-cancel-url="{{ url_for('web.cancel_index_task', task_id=task.task_id) }}"
+    >
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-3">
+            {% if task.is_active %}
+            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-blue border-t-transparent"></span>
+            {% endif %}
+            <p class="text-base font-semibold text-slate-900" data-task-status-text>
+              {% if task.status == "queued" %}
+              索引任务已创建，正在排队
+              {% elif task.status == "running" %}
+              索引任务正在后台执行
+              {% elif task.status == "cancelling" %}
+              索引任务正在取消，当前文件完成后将停止
+              {% elif task.status == "completed" %}
+              索引任务已完成
+              {% elif task.status == "cancelled" %}
+              索引任务已取消
+              {% else %}
+              索引任务执行失败
+              {% endif %}
+            </p>
+            <span
+              class="badge {% if task.status == 'completed' %}badge-success{% elif task.status == 'failed' %}badge-danger{% elif task.status == 'running' %}badge-info{% elif task.status == 'cancelled' %}badge-neutral{% else %}badge-warning{% endif %}"
+              data-task-status-badge
+            >
+              {{ task.status }}
+            </span>
+          </div>
+          <p class="mt-2 font-mono text-xs text-slate-500" data-task-paths>
+            {{ task.requested_paths | join(" · ") }}
+          </p>
+          <p class="mt-2 text-sm text-slate-500" data-task-current-file>
+            {% if task.current_file_path %}
+            当前文件：{{ task.current_file_path }}
+            {% elif task.is_active %}
+            当前文件：等待首个文件开始处理
+            {% else %}
+            当前文件：任务已结束
+            {% endif %}
+          </p>
+        </div>
+        <div class="flex flex-col items-start gap-3 lg:items-end">
+          <p class="text-xs text-slate-400">
+            任务 ID：<span class="font-mono">{{ task.task_id }}</span>
+          </p>
+          <button
+            type="button"
+            class="btn btn-secondary btn-main-action {% if not task.is_active %}hidden{% endif %}"
+            data-task-cancel
+            {% if task.status == "cancelling" %}disabled aria-disabled="true"{% endif %}
+          >
+            {% if task.status == "cancelling" %}取消中...{% else %}取消索引{% endif %}
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="alert mt-4 {% if task.status == 'cancelled' or task.status == 'cancelling' %}alert-success{% else %}alert-danger{% endif %} {% if not task.error_message %}hidden{% endif %}"
+        data-task-error
+      >
+        {{ task.error_message or "" }}
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="stat-card stat-card-neutral">
+          <p class="stat-card-title">总计</p>
+          <p class="stat-card-value" data-task-total>{{ task.total_files if task.total_files is not none else "--" }}</p>
+          <p class="stat-card-note text-slate-500" data-task-handled-note>已处理 {{ task.handled_files }}</p>
+        </div>
+        <div class="stat-card stat-card-success">
+          <p class="stat-card-title">成功</p>
+          <p class="stat-card-value" data-task-processed>{{ task.processed }}</p>
+        </div>
+        <div class="stat-card stat-card-warning">
+          <p class="stat-card-title">跳过</p>
+          <p class="stat-card-value" data-task-skipped>{{ task.skipped }}</p>
+        </div>
+        <div class="stat-card stat-card-danger">
+          <p class="stat-card-title">失败</p>
+          <p class="stat-card-value" data-task-errors>{{ task.errors }}</p>
+        </div>
+      </div>
+
+      <div class="mt-4 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">路径</th>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">状态</th>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">消息</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 bg-white" data-task-table-body>
+            {% for item in task.files %}
+            <tr class="transition hover:bg-slate-50">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
+              <td class="px-4 py-3">
+                <span class="badge {% if item.status == 'completed' %}badge-success{% elif item.status == 'skipped' %}badge-warning{% elif item.status == 'failed' %}badge-danger{% else %}badge-neutral{% endif %}">
+                  {{ item.status }}
+                </span>
+              </td>
+              <td class="px-4 py-3 text-slate-700">{{ item.message }}</td>
+            </tr>
+            {% else %}
+            <tr data-empty-row>
+              <td colspan="3" class="px-4 py-10 text-center text-sm text-slate-400">
+                当前还没有可展示的索引明细。
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const form = document.querySelector("[data-index-form]");
+    const checkboxes = Array.from(document.querySelectorAll("[data-file-type-checkbox]")).filter(
+      (checkbox) => checkbox instanceof HTMLInputElement
+    );
+
+    if (!(form instanceof HTMLFormElement) || checkboxes.length === 0) {
+      return;
+    }
+
+    const applySelection = (action) => {
+      checkboxes.forEach((checkbox) => {
+        if (action === "select-all") {
+          checkbox.checked = true;
+        } else if (action === "clear-all") {
+          checkbox.checked = false;
+        } else if (action === "invert") {
+          checkbox.checked = !checkbox.checked;
+        }
+      });
+    };
+
+    document.querySelectorAll("[data-file-type-action]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      button.addEventListener("click", () => {
+        const action = button.dataset.fileTypeAction;
+        if (!action) {
+          return;
+        }
+        applySelection(action);
+      });
+    });
+
+    form.addEventListener("submit", (event) => {
+      const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+      if (selectedCount > 0) {
+        return;
+      }
+      event.preventDefault();
+      window.alert("请至少选择一种文件类型。");
+    });
+  })();
+</script>
+{% if task and task_payload %}
+<script>
+  (() => {
+    const root = document.querySelector("[data-index-task-root]");
+    if (!(root instanceof HTMLElement)) {
+      return;
+    }
+
+    const statusUrl = root.dataset.statusUrl;
+    const cancelUrl = root.dataset.cancelUrl;
+    if (!statusUrl) {
+      return;
+    }
+
+    const initialTask = {{ task_payload | tojson }};
+    const submitButton = document.querySelector("[data-index-submit]");
+    const statusText = root.querySelector("[data-task-status-text]");
+    const statusBadge = root.querySelector("[data-task-status-badge]");
+    const currentFile = root.querySelector("[data-task-current-file]");
+    const totalValue = root.querySelector("[data-task-total]");
+    const handledNote = root.querySelector("[data-task-handled-note]");
+    const processedValue = root.querySelector("[data-task-processed]");
+    const skippedValue = root.querySelector("[data-task-skipped]");
+    const errorsValue = root.querySelector("[data-task-errors]");
+    const errorBox = root.querySelector("[data-task-error]");
+    const tableBody = root.querySelector("[data-task-table-body]");
+    const cancelButton = root.querySelector("[data-task-cancel]");
+
+    const statusLabel = (status) => {
+      if (status === "queued") {
+        return "索引任务已创建，正在排队";
+      }
+      if (status === "running") {
+        return "索引任务正在后台执行";
+      }
+      if (status === "cancelling") {
+        return "索引任务正在取消，当前文件完成后将停止";
+      }
+      if (status === "completed") {
+        return "索引任务已完成";
+      }
+      if (status === "cancelled") {
+        return "索引任务已取消";
+      }
+      if (status === "failed") {
+        return "索引任务执行失败";
+      }
+      return status;
+    };
+
+    const badgeClass = (status) => {
+      if (status === "completed") {
+        return "badge-success";
+      }
+      if (status === "failed") {
+        return "badge-danger";
+      }
+      if (status === "running") {
+        return "badge-info";
+      }
+      if (status === "cancelled") {
+        return "badge-neutral";
+      }
+      return "badge-warning";
+    };
+
+    const escapeHtml = (value) =>
+      String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+    const renderRows = (files) => {
+      if (!(tableBody instanceof HTMLElement)) {
+        return;
+      }
+
+      if (!Array.isArray(files) || files.length === 0) {
+        tableBody.innerHTML = `
+          <tr data-empty-row>
+            <td colspan="3" class="px-4 py-10 text-center text-sm text-slate-400">
+              当前还没有可展示的索引明细。
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tableBody.innerHTML = files
+        .map((item) => {
+          const status = typeof item.status === "string" ? item.status : "unknown";
+          return `
+            <tr class="transition hover:bg-slate-50">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">${escapeHtml(item.file_path ?? "")}</td>
+              <td class="px-4 py-3">
+                <span class="badge ${badgeClass(status)}">${escapeHtml(status)}</span>
+              </td>
+              <td class="px-4 py-3 text-slate-700">${escapeHtml(item.message ?? "")}</td>
+            </tr>
+          `;
+        })
+        .join("");
+    };
+
+    const updateSubmitState = (task) => {
+      if (!(submitButton instanceof HTMLButtonElement)) {
+      } else {
+        const isActive = Boolean(task.is_active);
+        submitButton.disabled = isActive;
+        submitButton.textContent = isActive ? "索引中..." : "开始索引";
+      }
+
+      if (!(cancelButton instanceof HTMLButtonElement)) {
+        return;
+      }
+      const isActive = Boolean(task.is_active);
+      cancelButton.classList.toggle("hidden", !isActive);
+      cancelButton.disabled = task.status === "cancelling";
+      cancelButton.textContent = task.status === "cancelling" ? "取消中..." : "取消索引";
+    };
+
+    const renderTask = (task) => {
+      if (statusText instanceof HTMLElement) {
+        statusText.textContent = statusLabel(task.status);
+      }
+      if (statusBadge instanceof HTMLElement) {
+        statusBadge.textContent = task.status;
+        statusBadge.className = `badge ${badgeClass(task.status)}`;
+      }
+      if (currentFile instanceof HTMLElement) {
+        if (task.current_file_path) {
+          currentFile.textContent = `当前文件：${task.current_file_path}`;
+        } else if (task.is_active) {
+          currentFile.textContent = "当前文件：等待首个文件开始处理";
+        } else {
+          currentFile.textContent = "当前文件：任务已结束";
+        }
+      }
+      if (totalValue instanceof HTMLElement) {
+        totalValue.textContent = task.total_files == null ? "--" : String(task.total_files);
+      }
+      if (handledNote instanceof HTMLElement) {
+        handledNote.textContent = `已处理 ${task.handled_files}`;
+      }
+      if (processedValue instanceof HTMLElement) {
+        processedValue.textContent = String(task.processed ?? 0);
+      }
+      if (skippedValue instanceof HTMLElement) {
+        skippedValue.textContent = String(task.skipped ?? 0);
+      }
+      if (errorsValue instanceof HTMLElement) {
+        errorsValue.textContent = String(task.errors ?? 0);
+      }
+      if (errorBox instanceof HTMLElement) {
+        if (typeof task.error_message === "string" && task.error_message !== "") {
+          errorBox.textContent = task.error_message;
+          errorBox.classList.remove("alert-danger", "alert-success");
+          errorBox.classList.add(
+            task.status === "cancelled" || task.status === "cancelling"
+              ? "alert-success"
+              : "alert-danger"
+          );
+          errorBox.classList.remove("hidden");
+        } else {
+          errorBox.textContent = "";
+          errorBox.classList.add("hidden");
+        }
+      }
+
+      renderRows(task.files);
+      updateSubmitState(task);
+    };
+
+    const requestCancel = async () => {
+      if (!(cancelButton instanceof HTMLButtonElement) || !cancelUrl) {
+        return;
+      }
+      if (cancelButton.disabled) {
+        return;
+      }
+
+      cancelButton.disabled = true;
+      cancelButton.textContent = "取消中...";
+
+      try {
+        const response = await fetch(cancelUrl, {
+          method: "POST",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const task = await response.json();
+        renderTask(task);
+        if (task.is_active) {
+          window.setTimeout(pollTask, 500);
+        }
+      } catch (error) {
+        console.error("取消索引任务失败", error);
+        window.alert("取消失败，请稍后重试。");
+        cancelButton.disabled = false;
+        cancelButton.textContent = "取消索引";
+      }
+    };
+
+    const pollTask = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const task = await response.json();
+        renderTask(task);
+        if (task.is_active) {
+          window.setTimeout(pollTask, 1200);
+        }
+      } catch (error) {
+        console.error("索引任务轮询失败", error);
+        window.setTimeout(pollTask, 2500);
+      }
+    };
+
+    renderTask(initialTask);
+    if (cancelButton instanceof HTMLButtonElement) {
+      cancelButton.addEventListener("click", requestCancel);
+    }
+    if (initialTask.is_active) {
+      window.setTimeout(pollTask, 600);
+    }
+  })();
+</script>
+{% endif %}
+{% endblock %}

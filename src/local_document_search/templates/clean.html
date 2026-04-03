@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+{% block title %}清理索引{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-slate-50">
+  <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <a href="{{ url_for('web.search_page') }}" class="shrink-0 text-[2rem] font-medium tracking-[-0.08em]">
+          <span class="text-brand-blue">本</span><span class="text-brand-red">地</span><span class="text-brand-yellow">文</span><span class="text-brand-blue">档</span><span class="text-brand-green">搜</span><span class="text-brand-red">索</span><span class="text-brand-blue">助</span><span class="text-brand-green">手</span>
+        </a>
+        <a href="{{ url_for('web.search_page') }}" class="btn btn-secondary">返回搜索</a>
+      </div>
+      <div class="mt-4 border-t border-slate-100 pt-4">
+        {% set active_section = "clean" %}
+        {% include "_management_tabs.html" %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
+    <section class="fade-up rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="text-sm text-slate-500">先找出数据库中已失效的记录，再决定要删除哪些项。</p>
+          <p class="mt-1 text-sm font-medium text-slate-700">第一步：输入目录并开始对比</p>
+        </div>
+      </div>
+
+      <form method="post" class="mt-5 space-y-5">
+        <input type="hidden" name="action" value="compare">
+        <div class="space-y-2">
+          <label for="clean-compare-path" class="block text-sm font-medium text-slate-700">目录路径</label>
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <input
+              id="clean-compare-path"
+              name="path"
+              type="text"
+              placeholder="例如：D:\documents\历史"
+              value="{{ compare_path }}"
+              class="field field-accent-yellow flex-1"
+            >
+            <button class="btn btn-warning btn-main-action shrink-0">开始对比</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    {% if result or action_message or error_message %}
+    <section class="fade-up fade-delay-1 mt-6 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-sm font-medium text-slate-700">第二步：筛选对比结果并选择要删除的记录</p>
+          <p class="mt-1 text-sm text-slate-500">路径关键词和文件类型过滤只影响当前对比结果，不会修改索引库。</p>
+        </div>
+        {% if result %}
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="badge badge-neutral">扫描 {{ result.scanned }}</span>
+          <span class="badge badge-warning">命中 {{ result.matched }}</span>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if action_message %}
+      <div class="alert alert-success mt-4">{{ action_message }}</div>
+      {% endif %}
+      {% if error_message %}
+      <div class="alert alert-danger mt-4">{{ error_message }}</div>
+      {% endif %}
+
+      <form method="post" class="mt-5 space-y-5" data-clean-filter-form>
+        <input type="hidden" name="action" value="compare">
+        <input type="hidden" name="path" value="{{ compare_path }}">
+        <div class="grid gap-4 lg:grid-cols-2">
+          <label class="block">
+            <span class="mb-2 block text-sm font-medium text-slate-700">路径关键词</span>
+            <input
+              name="path_keyword"
+              type="text"
+              placeholder="例如 archive"
+              value="{{ path_keyword }}"
+              class="field field-accent-yellow"
+            >
+          </label>
+        </div>
+
+        <div class="rounded-[1.25rem] border border-slate-200 p-4">
+          <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p class="text-sm font-medium text-slate-700">文件类型过滤</p>
+              <p class="mt-1 text-xs text-slate-400">默认不选择，留空表示不过滤</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" data-clean-file-type-action="select-all">全选</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-clean-file-type-action="clear-all">全不选</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-clean-file-type-action="invert">反选</button>
+            </div>
+          </div>
+          <div class="grid gap-4 xl:grid-cols-2">
+            {% for group in file_type_groups %}
+            <section class="rounded-[1.125rem] border border-slate-200 bg-slate-50/80 p-4">
+              <div class="mb-3">
+                <h3 class="text-sm font-semibold text-slate-800">{{ group.title }}</h3>
+              </div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                {% for item in group.options %}
+                <label class="inline-flex items-center gap-3 rounded-[1rem] border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
+                  <input
+                    name="file_types"
+                    value="{{ item.value }}"
+                    type="checkbox"
+                    {% if item.value in selected_file_types %}checked{% endif %}
+                    class="h-4 w-4 rounded border-slate-300 text-brand-yellow"
+                    data-clean-file-type-checkbox
+                  >
+                  <span>{{ item.label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </section>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button class="btn btn-secondary btn-main-action">应用筛选</button>
+      </form>
+
+      {% if result %}
+      <form method="post" class="mt-6 space-y-4" data-clean-delete-form>
+        <input type="hidden" name="path" value="{{ compare_path }}">
+        <input type="hidden" name="path_keyword" value="{{ path_keyword }}">
+        {% for item in selected_file_types %}
+        <input type="hidden" name="file_types" value="{{ item }}">
+        {% endfor %}
+
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-3">
+            <label class="inline-flex items-center gap-3 text-sm text-slate-700">
+              <input type="checkbox" class="h-4 w-4 rounded border-slate-300 text-brand-yellow" data-clean-select-all>
+              全选当前对比结果
+            </label>
+            <span class="text-sm text-slate-500" data-clean-selected-count>已选择 0 条</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              class="btn btn-warning btn-main-action"
+              name="action"
+              value="delete"
+              data-clean-delete-button
+            >
+              删除选中
+            </button>
+            <button
+              class="btn btn-primary btn-main-action"
+              name="action"
+              value="delete_all"
+            >
+              删除全部失效记录
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-[1.25rem] border border-slate-200">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">选择</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">文件名</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">路径</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">类型</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">状态</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 bg-white">
+              {% for item in result.items %}
+              <tr class="transition hover:bg-slate-50">
+                <td class="px-4 py-3">
+                  <input
+                    name="selected_document_ids"
+                    value="{{ item.document_id }}"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-brand-yellow"
+                    data-clean-row-checkbox
+                  >
+                </td>
+                <td class="px-4 py-3 text-slate-900">{{ item.file_name }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
+                <td class="px-4 py-3 text-slate-700">{{ item.file_type or "-" }}</td>
+                <td class="px-4 py-3">
+                  <span class="badge {% if item.status == 'failed' %}badge-danger{% elif item.status == 'completed' %}badge-success{% else %}badge-neutral{% endif %}">
+                    {{ item.status }}
+                  </span>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-400">
+                  当前没有命中的对比结果。
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const filterForm = document.querySelector("[data-clean-filter-form]");
+    const filterCheckboxes = Array.from(
+      document.querySelectorAll("[data-clean-file-type-checkbox]")
+    ).filter((checkbox) => checkbox instanceof HTMLInputElement);
+
+    if (!(filterForm instanceof HTMLFormElement) || filterCheckboxes.length === 0) {
+      return;
+    }
+
+    const applySelection = (action) => {
+      filterCheckboxes.forEach((checkbox) => {
+        if (action === "select-all") {
+          checkbox.checked = true;
+        } else if (action === "clear-all") {
+          checkbox.checked = false;
+        } else if (action === "invert") {
+          checkbox.checked = !checkbox.checked;
+        }
+      });
+    };
+
+    document.querySelectorAll("[data-clean-file-type-action]").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      button.addEventListener("click", () => {
+        const action = button.dataset.cleanFileTypeAction;
+        if (!action) {
+          return;
+        }
+        applySelection(action);
+      });
+    });
+  })();
+
+  (() => {
+    const deleteForm = document.querySelector("[data-clean-delete-form]");
+    const selectAll = document.querySelector("[data-clean-select-all]");
+    const countNode = document.querySelector("[data-clean-selected-count]");
+    const deleteButton = document.querySelector("[data-clean-delete-button]");
+    const rowCheckboxes = Array.from(
+      document.querySelectorAll("[data-clean-row-checkbox]")
+    ).filter((checkbox) => checkbox instanceof HTMLInputElement);
+
+    if (!(deleteForm instanceof HTMLFormElement) || !(selectAll instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const updateSelectionState = () => {
+      const selectedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+      if (countNode instanceof HTMLElement) {
+        countNode.textContent = `已选择 ${selectedCount} 条`;
+      }
+      selectAll.checked = rowCheckboxes.length > 0 && selectedCount === rowCheckboxes.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < rowCheckboxes.length;
+      if (deleteButton instanceof HTMLButtonElement) {
+        deleteButton.disabled = selectedCount === 0;
+      }
+    };
+
+    selectAll.addEventListener("change", () => {
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+      updateSelectionState();
+    });
+
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateSelectionState);
+    });
+
+    deleteForm.addEventListener("submit", (event) => {
+      const selectedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+      if (selectedCount > 0) {
+        return;
+      }
+      event.preventDefault();
+      window.alert("请至少选择一条对比结果。");
+    });
+
+    updateSelectionState();
+  })();
+</script>
+{% endblock %}

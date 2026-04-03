@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}错误记录{% endblock %}
+{% block body %}
+<div class="min-h-screen bg-slate-50">
+  <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <a href="{{ url_for('web.search_page') }}" class="shrink-0 text-[2rem] font-medium tracking-[-0.08em]">
+          <span class="text-brand-blue">本</span><span class="text-brand-red">地</span><span class="text-brand-yellow">文</span><span class="text-brand-blue">档</span><span class="text-brand-green">搜</span><span class="text-brand-red">索</span><span class="text-brand-blue">助</span><span class="text-brand-green">手</span>
+        </a>
+        <a href="{{ url_for('web.search_page') }}" class="btn btn-secondary">返回搜索</a>
+      </div>
+      <div class="mt-4 border-t border-slate-100 pt-4">
+        {% set active_section = "errors" %}
+        {% include "_management_tabs.html" %}
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
+    <section class="fade-up rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm font-medium text-slate-500">筛选失败文档，并按需批量或逐条重试。</p>
+      </div>
+
+      <form method="get" class="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,0.8fr)_minmax(220px,0.8fr)_140px]">
+        <input name="name" value="{{ filter_name }}" type="text" placeholder="按文件名过滤" class="field field-accent-red">
+        <input name="updated_after" value="{{ updated_after_value }}" type="datetime-local" class="field field-accent-red">
+        <input name="updated_before" value="{{ updated_before_value }}" type="datetime-local" class="field field-accent-red">
+        <button class="btn btn-dark btn-main-action">筛选</button>
+      </form>
+    </section>
+
+    {% if action_result %}
+    <section class="fade-up fade-delay-1 alert alert-success mt-6">
+      本次重试：共 {{ action_result.total }} 条，成功 {{ action_result.succeeded }}，失败 {{ action_result.failed }}。
+    </section>
+    {% endif %}
+    {% if error_message %}
+    <section class="fade-up fade-delay-1 alert alert-danger mt-6">
+      {{ error_message }}
+    </section>
+    {% endif %}
+
+    <section class="fade-up fade-delay-2 mt-6 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <p class="text-sm font-medium text-slate-700">共 {{ result.total }} 条失败记录</p>
+          <span class="text-sm text-slate-500" data-errors-selected-count>已选择 0 条</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            form="errors-batch-form"
+            class="btn btn-secondary btn-main-action"
+            data-errors-retry-button
+          >
+            重试选中
+          </button>
+          <form method="post">
+            <input type="hidden" name="action" value="retry_all">
+            <input type="hidden" name="retry_all" value="1">
+            <input type="hidden" name="name" value="{{ filter_name }}">
+            <input type="hidden" name="updated_after" value="{{ updated_after_value }}">
+            <input type="hidden" name="updated_before" value="{{ updated_before_value }}">
+            <button class="btn btn-primary btn-main-action">重试全部失败记录</button>
+          </form>
+        </div>
+      </div>
+
+      <form method="post" id="errors-batch-form" data-errors-batch-form>
+        <input type="hidden" name="action" value="retry_selected">
+        <input type="hidden" name="name" value="{{ filter_name }}">
+        <input type="hidden" name="updated_after" value="{{ updated_after_value }}">
+        <input type="hidden" name="updated_before" value="{{ updated_before_value }}">
+
+        <div class="mb-4 flex flex-wrap items-center gap-3">
+          <label class="inline-flex items-center gap-3 text-sm text-slate-700">
+            <input type="checkbox" class="h-4 w-4 rounded border-slate-300 text-brand-red" data-errors-select-all>
+            全选当前筛选结果
+          </label>
+        </div>
+
+        <div class="overflow-x-auto rounded-[1.25rem] border border-slate-200">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">选择</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">文件名</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">路径</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">错误信息</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 bg-white">
+              {% for item in result.items %}
+              <tr class="transition hover:bg-slate-50">
+                <td class="px-4 py-3">
+                  <input
+                    name="selected_document_ids"
+                    value="{{ item.document_id }}"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-brand-red"
+                    data-errors-row-checkbox
+                  >
+                </td>
+                <td class="px-4 py-3 text-slate-700">{{ item.document_id }}</td>
+                <td class="px-4 py-3 text-slate-900">{{ item.file_name }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
+                <td class="px-4 py-3 text-slate-700">{{ item.error_message }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-400">当前没有失败记录。</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const batchForm = document.querySelector("[data-errors-batch-form]");
+    const selectAll = document.querySelector("[data-errors-select-all]");
+    const countNode = document.querySelector("[data-errors-selected-count]");
+    const retryButton = document.querySelector("[data-errors-retry-button]");
+    const rowCheckboxes = Array.from(
+      document.querySelectorAll("[data-errors-row-checkbox]")
+    ).filter((checkbox) => checkbox instanceof HTMLInputElement);
+
+    if (!(batchForm instanceof HTMLFormElement) || !(selectAll instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const updateSelectionState = () => {
+      const selectedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+      if (countNode instanceof HTMLElement) {
+        countNode.textContent = `已选择 ${selectedCount} 条`;
+      }
+      selectAll.checked = rowCheckboxes.length > 0 && selectedCount === rowCheckboxes.length;
+      selectAll.indeterminate = selectedCount > 0 && selectedCount < rowCheckboxes.length;
+      if (retryButton instanceof HTMLButtonElement) {
+        retryButton.disabled = selectedCount === 0;
+      }
+    };
+
+    selectAll.addEventListener("change", () => {
+      rowCheckboxes.forEach((checkbox) => {
+        checkbox.checked = selectAll.checked;
+      });
+      updateSelectionState();
+    });
+
+    rowCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener("change", updateSelectionState);
+    });
+
+    batchForm.addEventListener("submit", (event) => {
+      const selectedCount = rowCheckboxes.filter((checkbox) => checkbox.checked).length;
+      if (selectedCount > 0) {
+        return;
+      }
+      event.preventDefault();
+      window.alert("请至少选择一条失败记录。");
+    });
+
+    updateSelectionState();
+  })();
+</script>
+{% endblock %}

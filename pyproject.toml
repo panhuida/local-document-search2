@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-document-search"
+version = "0.1.0"
+description = "本地运行的文档索引与检索助手"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "Flask>=3.1.0,<4.0.0",
+  "SQLAlchemy>=2.0.38,<3.0.0",
+  "Typer>=0.16.0,<1.0.0",
+  "rich>=14.0.0,<15.0.0",
+  "python-dotenv>=1.1.0,<2.0.0",
+  "markdown-it-py>=3.0.0,<4.0.0",
+  "markitdown[pdf,pptx,docx,xlsx]>=0.1.1,<1.0.0",
+  "pywin32>=308; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5,<9.0.0",
+  "pytest-cov>=6.1.1,<7.0.0",
+  "pyright>=1.1.400,<2.0.0",
+  "ruff>=0.11.5,<1.0.0",
+  "playwright>=1.54.0,<2.0.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N"]
+
+[tool.pyright]
+include = ["src", "tests", "doc-cli.py", "run.py"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+reportUnnecessaryTypeIgnoreComment = true

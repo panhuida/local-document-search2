@@ -1,0 +1,21 @@
+{% set current_section = active_section | default('index') %}
+<nav aria-label="管理导航" class="flex flex-wrap items-center gap-2">
+  <a
+    href="{{ url_for('web.index_page') }}"
+    class="nav-tab {% if current_section == 'index' %}nav-tab-active{% else %}nav-tab-inactive{% endif %}"
+  >
+    文档索引
+  </a>
+  <a
+    href="{{ url_for('web.errors_page') }}"
+    class="nav-tab {% if current_section == 'errors' %}nav-tab-active{% else %}nav-tab-inactive{% endif %}"
+  >
+    错误记录
+  </a>
+  <a
+    href="{{ url_for('web.clean_page') }}"
+    class="nav-tab {% if current_section == 'clean' %}nav-tab-active{% else %}nav-tab-inactive{% endif %}"
+  >
+    清理索引
+  </a>
+</nav>

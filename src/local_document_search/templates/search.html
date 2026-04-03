@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+{% block title %}{% if query %}{{ query }} - 本地文档搜索助手{% else %}本地文档搜索助手{% endif %}{% endblock %}
+{% block body %}
+{% if not query %}
+<div class="min-h-screen bg-[linear-gradient(180deg,#ffffff_0%,#ffffff_58%,#f2f4f7_100%)]">
+  <header class="relative z-10 flex items-center justify-end px-5 py-5 sm:px-8">
+    {% include "_app_menu.html" %}
+  </header>
+
+  <main class="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col items-center px-6 pb-24 pt-[clamp(5.5rem,14vh,9rem)] sm:pb-28">
+    <div class="fade-up w-full max-w-[760px] text-center">
+      <a href="{{ url_for('web.search_page') }}" class="inline-block text-[2.65rem] font-medium tracking-[-0.055em] sm:text-[3.7rem]">
+        <span class="text-brand-blue">本</span><span class="text-brand-red">地</span><span class="text-brand-yellow">文</span><span class="text-brand-blue">档</span><span class="text-brand-green">搜</span><span class="text-brand-red">索</span><span class="text-brand-blue">助</span><span class="text-brand-green">手</span>
+      </a>
+      <p class="mx-auto mt-3 max-w-[620px] text-[13px] leading-[1.7] text-slate-500">
+        支持检索 Markdown、PDF、Office、XMind、draw.io 等文档。
+      </p>
+    </div>
+
+    <form action="{{ url_for('web.search_page') }}" method="get" class="fade-up fade-delay-1 mt-7 w-full max-w-[760px]">
+      <div class="search-shell search-shell-hero gap-3 pr-2">
+        <svg class="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0a7 7 0 0114 0z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <input
+          id="query-input"
+          autofocus
+          name="q"
+          type="text"
+          placeholder="输入本地文档关键词"
+          class="search-input text-lg"
+        >
+        <button type="button" data-clear-search class="hidden rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600" aria-label="清空查询">
+          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+          </svg>
+        </button>
+        <button class="btn btn-primary btn-inline-submit">
+          搜索
+        </button>
+      </div>
+    </form>
+
+    <section class="fade-up fade-delay-2 mt-9 w-full max-w-[760px]">
+      <div class="flex items-center justify-center gap-3 text-center">
+        <p class="text-[11px] font-medium tracking-[0.24em] text-slate-400">最近搜索</p>
+        <button
+          id="recent-searches-clear-all"
+          type="button"
+          class="hidden text-[11px] font-medium tracking-[0.24em] text-slate-400 transition hover:text-slate-500"
+        >
+          清除全部
+        </button>
+      </div>
+      <div id="recent-searches" class="mt-5 flex flex-wrap justify-center gap-3"></div>
+    </section>
+  </main>
+</div>
+{% else %}
+<div class="min-h-screen bg-white">
+  <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="w-full px-4 py-4 sm:px-6 lg:px-8 xl:px-10">
+      <div class="lg:grid lg:grid-cols-[132px_minmax(0,720px)] lg:items-center lg:gap-5">
+        <a href="{{ url_for('web.search_page') }}" class="shrink-0 whitespace-nowrap text-lg font-semibold tracking-[-0.04em] text-slate-900 sm:text-[1.2rem]">
+          本地文档搜索助手
+        </a>
+
+        <form action="{{ url_for('web.search_page') }}" method="get" class="mt-4 lg:mt-0">
+          <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+          <label class="search-shell search-shell-results flex-1">
+            <svg class="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0a7 7 0 0114 0z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+            <input
+              id="query-input"
+              autofocus
+              name="q"
+              value="{{ query }}"
+              type="text"
+              class="search-input text-base"
+            >
+            <button type="button" data-clear-search class="rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600" aria-label="清空查询">
+              <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+              </svg>
+            </button>
+          </label>
+          <button type="submit" class="btn btn-primary btn-main-action">
+            搜索
+          </button>
+          </div>
+        </form>
+        </div>
+    </div>
+  </header>
+
+  <main class="w-full px-4 pb-24 pt-7 sm:px-6 lg:px-8 xl:px-10">
+    <div class="lg:grid lg:grid-cols-[132px_minmax(0,720px)] lg:gap-5">
+      <div class="hidden lg:block"></div>
+      <div class="min-w-0 max-w-[720px]">
+      {% if result and result.total > 0 %}
+      <p class="mb-7 text-sm text-slate-500">
+        找到约 {{ result.total }} 条结果
+        {% if elapsed_ms %}
+        （本地检索耗时 {{ elapsed_ms }} ms）
+        {% endif %}
+      </p>
+
+      <div class="space-y-8">
+        {% for item in result.hits %}
+        <article class="fade-up rounded-[1.75rem] border border-transparent py-1 transition hover:border-slate-100 hover:bg-slate-50/60">
+          <h2 class="text-[1.45rem] font-normal leading-8">
+            <a href="{{ url_for('web.preview_page', document_id=item.document_id) }}" target="_blank" rel="noopener noreferrer" class="text-[#1a0dab] transition hover:underline">
+              {{ item.file_name }}
+            </a>
+          </h2>
+          <div class="result-mark mt-2 text-[15px] leading-7 text-slate-700">{{ item.snippet | safe }}</div>
+          <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 text-slate-500">
+              <span class="badge badge-neutral">{{ item.file_type or "doc" }}</span>
+              <span class="truncate font-mono text-xs sm:max-w-[28rem] lg:max-w-[30rem] sm:text-[0.8rem]">{{ item.file_path }}</span>
+              {% if item.modified_at %}
+              <span class="text-xs text-slate-400">修改时间 {{ item.modified_at | local_datetime("%Y-%m-%d %H:%M") }}</span>
+              {% endif %}
+            </div>
+            <a href="{{ url_for('web.preview_page', document_id=item.document_id) }}" target="_blank" rel="noopener noreferrer" class="font-medium text-[#1a73e8] hover:underline">预览</a>
+            <a href="{{ url_for('web.open_document', document_id=item.document_id) }}" data-system-open class="font-medium text-[#1a73e8] hover:underline">打开文件</a>
+            <a href="{{ url_for('web.open_document', document_id=item.document_id, parent=1) }}" data-system-open class="font-medium text-[#1a73e8] hover:underline">打开所在目录</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+
+      {% if total_pages > 1 %}
+      <nav class="mt-12 flex flex-wrap items-center gap-2 text-sm">
+        {% if current_page > 1 %}
+        <a
+          href="{{ url_for('web.search_page', q=query, page=current_page - 1) }}"
+          class="btn btn-secondary btn-sm"
+        >
+          上一页
+        </a>
+        {% endif %}
+
+        {% for page_entry in pagination_entries %}
+        {% if page_entry is none %}
+        <span class="inline-flex h-10 w-10 items-center justify-center text-slate-400">…</span>
+        {% else %}
+        <a
+          href="{{ url_for('web.search_page', q=query, page=page_entry) }}"
+          class="inline-flex h-10 min-w-10 items-center justify-center rounded-[0.5rem] px-3 {% if page_entry == current_page %}btn btn-current{% else %}btn btn-secondary{% endif %}"
+        >
+          {{ page_entry }}
+        </a>
+        {% endif %}
+        {% endfor %}
+
+        {% if current_page < total_pages %}
+        <a
+          href="{{ url_for('web.search_page', q=query, page=current_page + 1) }}"
+          class="btn btn-secondary btn-sm"
+        >
+          下一页
+        </a>
+        {% endif %}
+      </nav>
+      {% endif %}
+      {% else %}
+      <section class="fade-up rounded-[2rem] border border-dashed border-slate-200 bg-slate-50 px-6 py-12">
+        <p class="text-lg font-semibold text-slate-900">没有找到与“{{ query }}”相关的结果</p>
+        <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-500">
+          试试更短或更准确的关键词，或者先到“应用”里的文档索引页面检查目标目录是否已经建立索引。
+        </p>
+      </section>
+      {% endif %}
+      </div>
+    </div>
+  </main>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const searchInput = document.getElementById("query-input");
+  const clearButtons = document.querySelectorAll("[data-clear-search]");
+
+  const syncClearButtons = () => {
+    clearButtons.forEach((button) => {
+      if (!(button instanceof HTMLElement)) {
+        return;
+      }
+      const shouldShow = Boolean(searchInput && searchInput.value.trim() !== "");
+      button.classList.toggle("hidden", !shouldShow);
+    });
+  };
+
+  if (searchInput) {
+    searchInput.focus();
+    if (searchInput.value) {
+      searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    }
+    syncClearButtons();
+    searchInput.addEventListener("input", syncClearButtons);
+  }
+
+  clearButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!searchInput) {
+        return;
+      }
+      searchInput.value = "";
+      searchInput.focus();
+      syncClearButtons();
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    const activeElement = document.activeElement;
+    const isTypingTarget =
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement;
+
+    if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !isTypingTarget) {
+      if (!searchInput) {
+        return;
+      }
+      event.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+
+    if (event.key === "Escape" && activeElement === searchInput && searchInput) {
+      searchInput.value = "";
+      syncClearButtons();
+    }
+  });
+
+  const STORAGE_KEY = "local-document-search-recent";
+  const RECENT_VISIBLE_COUNT = 6;
+  const RECENT_HISTORY_LIMIT = 20;
+  const currentQuery = searchInput ? searchInput.value.trim() : "";
+
+  const readRecentHistory = () => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter((item) => typeof item === "string" && item.trim() !== "");
+    } catch {
+      return [];
+    }
+  };
+
+  const writeRecentHistory = (history) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(0, RECENT_HISTORY_LIMIT)));
+  };
+
+  if (currentQuery) {
+    const history = readRecentHistory();
+    const nextHistory = [currentQuery, ...history.filter((item) => item !== currentQuery)];
+    writeRecentHistory(nextHistory);
+  }
+
+  const recentContainer = document.getElementById("recent-searches");
+  const clearAllRecentButton = document.getElementById("recent-searches-clear-all");
+  const removeIconSvg = `
+    <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+    </svg>
+  `;
+
+  const renderRecentSearches = () => {
+    if (!(recentContainer instanceof HTMLElement)) {
+      return;
+    }
+
+    recentContainer.replaceChildren();
+    const history = readRecentHistory();
+
+    if (clearAllRecentButton instanceof HTMLButtonElement) {
+      clearAllRecentButton.classList.toggle("hidden", history.length === 0);
+    }
+
+    if (history.length === 0) {
+      const placeholder = document.createElement("p");
+      placeholder.className = "text-center text-sm text-slate-400";
+      placeholder.textContent = "最近搜索会显示在这里";
+      recentContainer.appendChild(placeholder);
+      return;
+    }
+
+    const recentItems = history.map((item) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "group relative inline-flex max-w-full items-center";
+
+      const link = document.createElement("a");
+      link.href = `{{ url_for('web.search_page') }}?q=${encodeURIComponent(item)}`;
+      link.className = "rounded-full border border-slate-200 bg-white px-4 py-2 pr-10 text-sm text-slate-700 shadow-sm transition hover:border-slate-300 hover:shadow";
+      link.title = item;
+
+      const label = document.createElement("span");
+      label.className = "block max-w-[15rem] truncate";
+      label.textContent = item;
+      link.appendChild(label);
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "absolute right-2 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 group-hover:flex group-focus-within:flex";
+      removeButton.setAttribute("aria-label", `清除最近搜索：${item}`);
+      removeButton.innerHTML = removeIconSvg;
+      removeButton.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextHistory = readRecentHistory().filter((historyItem) => historyItem !== item);
+        writeRecentHistory(nextHistory);
+        renderRecentSearches();
+      });
+
+      wrapper.appendChild(link);
+      wrapper.appendChild(removeButton);
+      recentContainer.appendChild(wrapper);
+      return wrapper;
+    });
+
+    if (history.length > RECENT_VISIBLE_COUNT) {
+      recentItems.forEach((item, index) => {
+        if (index >= RECENT_VISIBLE_COUNT) {
+          item.classList.add("hidden");
+        }
+      });
+
+      const toggleButton = document.createElement("button");
+      toggleButton.type = "button";
+      toggleButton.className = "rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-white hover:shadow";
+
+      let expanded = false;
+      const hiddenCount = history.length - RECENT_VISIBLE_COUNT;
+      toggleButton.textContent = `更多 ${hiddenCount}`;
+      toggleButton.addEventListener("click", () => {
+        expanded = !expanded;
+        recentItems.forEach((item, index) => {
+          if (index >= RECENT_VISIBLE_COUNT) {
+            item.classList.toggle("hidden", !expanded);
+          }
+        });
+        toggleButton.textContent = expanded ? "收起" : `更多 ${hiddenCount}`;
+      });
+
+      recentContainer.appendChild(toggleButton);
+    }
+  };
+
+  if (clearAllRecentButton instanceof HTMLButtonElement) {
+    clearAllRecentButton.addEventListener("click", () => {
+      localStorage.removeItem(STORAGE_KEY);
+      renderRecentSearches();
+    });
+  }
+
+  if (recentContainer) {
+    renderRecentSearches();
+  }
+</script>
+{% endblock %}
