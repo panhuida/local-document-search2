@@ -25,6 +25,7 @@ class ErrorListRequest:
     file_name_keyword: str | None = None
     updated_after: datetime | None = None
     updated_before: datetime | None = None
+    include_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class ErrorListResult:
     """错误记录列表查询结果。"""
 
     total: int
+    include_fallback: bool
     items: tuple[ErrorRecordItem, ...]
 
 
@@ -56,6 +58,7 @@ class RetryRequest:
     document_ids: tuple[int, ...] = tuple()
     file_path: str | None = None
     retry_all_failed: bool = False
+    include_fallback: bool = False
     dry_run: bool = False
 
 
@@ -82,7 +85,7 @@ class RetryResult:
 
 
 class ErrorRecordService:
-    """负责列出失败文档并触发重新转换。"""
+    """负责列出失败/回退文档并触发重新转换。"""
 
     def __init__(
         self,
@@ -93,7 +96,7 @@ class ErrorRecordService:
         self._converter_factory = converter_factory or ConverterFactory()
 
     def list_errors(self, request: ErrorListRequest) -> ErrorListResult:
-        """查询当前数据库中的失败文档列表。"""
+        """查询当前数据库中的失败或回退文档列表。"""
         normalized_updated_after = (
             normalize_datetime_to_aware_utc(request.updated_after)
             if request.updated_after is not None
@@ -107,6 +110,7 @@ class ErrorRecordService:
         with self._session_factory() as session:
             repository = DocumentRepository(session)
             documents = repository.list_failed_documents(
+                include_fallback=request.include_fallback,
                 file_name_keyword=request.file_name_keyword,
                 updated_after=normalized_updated_after,
                 updated_before=normalized_updated_before,
@@ -123,10 +127,14 @@ class ErrorRecordService:
                 )
                 for document in documents
             )
-            return ErrorListResult(total=len(items), items=items)
+            return ErrorListResult(
+                total=len(items),
+                include_fallback=request.include_fallback,
+                items=items,
+            )
 
     def retry_errors(self, request: RetryRequest) -> RetryResult:
-        """按请求范围重新转换失败文档。"""
+        """按请求范围重新转换失败或回退文档。"""
         items: list[RetryItemResult] = []
         succeeded = 0
         failed = 0
@@ -222,6 +230,16 @@ class ErrorRecordService:
                             message="重试成功",
                         )
                     )
+                elif conversion.status is ConversionStatus.FALLBACK:
+                    failed += 1
+                    items.append(
+                        RetryItemResult(
+                            document_id=document.id,
+                            file_path=str(source_path.resolve()),
+                            status="fallback",
+                            message=conversion.error_message or "重试后仍回退为元数据索引",
+                        )
+                    )
                 else:
                     failed += 1
                     items.append(
@@ -251,15 +269,28 @@ class ErrorRecordService:
     ) -> tuple[Document, ...]:
         """根据重试参数解析目标文档集合。"""
         if request.retry_all_failed:
-            return tuple(repository.list_failed_documents())
+            return tuple(
+                repository.list_failed_documents(include_fallback=request.include_fallback)
+            )
         if len(request.document_ids) > 0:
             normalized_document_ids = tuple(dict.fromkeys(request.document_ids))
             documents = repository.get_by_ids(normalized_document_ids)
-            return tuple(document for document in documents if document.status == "failed")
+            allowed_statuses = {"failed", "fallback"} if request.include_fallback else {"failed"}
+            return tuple(document for document in documents if document.status in allowed_statuses)
         if request.document_id is not None:
             document = repository.get_by_id(request.document_id)
-            return (document,) if document is not None and document.status == "failed" else tuple()
+            allowed_statuses = {"failed", "fallback"} if request.include_fallback else {"failed"}
+            return (
+                (document,)
+                if document is not None and document.status in allowed_statuses
+                else tuple()
+            )
         if request.file_path is not None:
             document = repository.get_by_path(str(Path(request.file_path).resolve()))
-            return (document,) if document is not None and document.status == "failed" else tuple()
-        return tuple(repository.list_failed_documents())
+            allowed_statuses = {"failed", "fallback"} if request.include_fallback else {"failed"}
+            return (
+                (document,)
+                if document is not None and document.status in allowed_statuses
+                else tuple()
+            )
+        return tuple(repository.list_failed_documents(include_fallback=request.include_fallback))

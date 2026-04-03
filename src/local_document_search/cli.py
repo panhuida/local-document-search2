@@ -39,7 +39,7 @@ from local_document_search.utils import parse_datetime_string_to_aware_utc
 console = Console()
 app = typer.Typer(help="本地文档搜索助手 CLI", no_args_is_help=True)
 db_app = typer.Typer(help="数据库相关命令", no_args_is_help=True)
-errors_app = typer.Typer(help="失败记录相关命令", no_args_is_help=True)
+errors_app = typer.Typer(help="失败/回退记录相关命令", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(errors_app, name="errors")
 
@@ -268,16 +268,22 @@ def _render_search_table(result: SearchResult) -> None:
 
 
 def _render_error_table(result: ErrorListResult) -> None:
-    """渲染失败记录表格。"""
+    """渲染失败或回退记录表格。"""
 
-    table = Table(title=f"失败记录（共 {result.total} 条）")
+    title_prefix = "问题记录" if result.include_fallback else "失败记录"
+    table = Table(title=f"{title_prefix}（共 {result.total} 条）")
     table.add_column("ID", justify="right")
     table.add_column("文件名")
+    table.add_column("状态")
     table.add_column("路径")
-    table.add_column("错误信息")
+    table.add_column("原因说明" if result.include_fallback else "错误信息")
     for item in result.items:
         table.add_row(
-            str(item.document_id), item.file_name, item.file_path, item.error_message or "-"
+            str(item.document_id),
+            item.file_name,
+            item.status,
+            item.file_path,
+            item.error_message or "-",
         )
     console.print(table)
 
@@ -491,11 +497,12 @@ def list_errors(
     name: Annotated[str | None, typer.Option("--name")] = None,
     updated_after: Annotated[str | None, typer.Option("--updated-after")] = None,
     updated_before: Annotated[str | None, typer.Option("--updated-before")] = None,
+    include_fallback: Annotated[bool, typer.Option("--include-fallback")] = False,
     output_format: Annotated[OutputFormat, typer.Option("--format")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
 ) -> None:
-    """列出失败记录。"""
+    """列出失败记录，必要时可一并包含回退记录。"""
 
     del verbose, quiet
     try:
@@ -505,6 +512,7 @@ def list_errors(
                 file_name_keyword=name,
                 updated_after=_parse_datetime_option(updated_after),
                 updated_before=_parse_datetime_option(updated_before),
+                include_fallback=include_fallback,
             )
         )
         if output_format is OutputFormat.JSON:
@@ -519,6 +527,7 @@ def _run_retry_command(
     document_id: int | None,
     file_path: str | None,
     retry_all_failed: bool,
+    include_fallback: bool,
     dry_run: bool,
     output_format: OutputFormat,
 ) -> None:
@@ -530,6 +539,7 @@ def _run_retry_command(
             document_id=document_id,
             file_path=file_path,
             retry_all_failed=retry_all_failed,
+            include_fallback=include_fallback,
             dry_run=dry_run,
         )
     )
@@ -539,29 +549,41 @@ def _run_retry_command(
     _render_retry_table(result)
 
 
-@errors_app.command("retry", help="重试失败记录，推荐使用这个入口。")
+@errors_app.command("retry", help="重试失败记录，必要时可一并处理回退记录，推荐使用这个入口。")
 def retry_errors(
     document_id: Annotated[int | None, typer.Option("--id")] = None,
     file_path: Annotated[str | None, typer.Option("--path")] = None,
     all_failed: Annotated[bool, typer.Option("--all-failed")] = False,
+    include_fallback: Annotated[bool, typer.Option("--include-fallback")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     output_format: Annotated[OutputFormat, typer.Option("--format")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
 ) -> None:
-    """通过 errors 子命令重试失败记录。"""
+    """通过 errors 子命令重试失败或回退记录。"""
 
     del verbose, quiet
     try:
-        _run_retry_command(document_id, file_path, all_failed, dry_run, output_format)
+        _run_retry_command(
+            document_id,
+            file_path,
+            all_failed,
+            include_fallback,
+            dry_run,
+            output_format,
+        )
     except Exception as exc:
         _handle_exception(exc)
 
 
-@app.command("retry", help="失败记录重试的顶层兼容别名，建议优先使用 `errors retry`。")
+@app.command(
+    "retry",
+    help="失败/回退记录重试的顶层兼容别名，建议优先使用 `errors retry`。",
+)
 def retry_alias(
     document_id: Annotated[int | None, typer.Argument(help="失败记录 ID")] = None,
     all_failed: Annotated[bool, typer.Option("--all-failed")] = False,
+    include_fallback: Annotated[bool, typer.Option("--include-fallback")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     output_format: Annotated[OutputFormat, typer.Option("--format")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
@@ -571,7 +593,14 @@ def retry_alias(
 
     del verbose, quiet
     try:
-        _run_retry_command(document_id, None, all_failed, dry_run, output_format)
+        _run_retry_command(
+            document_id,
+            None,
+            all_failed,
+            include_fallback,
+            dry_run,
+            output_format,
+        )
     except Exception as exc:
         _handle_exception(exc)
 

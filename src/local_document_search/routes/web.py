@@ -226,13 +226,14 @@ def search_page() -> str:
 
 @web_blueprint.route("/errors", methods=["GET", "POST"])
 def errors_page() -> str:
-    """错误记录页面，支持查看和重试失败文档。"""
+    """错误记录页面，支持查看和重试失败或回退文档。"""
     services = _services()
     action_result = None
     error_message: str | None = None
     filter_name = request.values.get("name", "").strip()
     updated_after_raw = request.values.get("updated_after", "").strip()
     updated_before_raw = request.values.get("updated_before", "").strip()
+    include_fallback = request.values.get("include_fallback") == "1"
     if request.method == "POST":
         action = request.form.get("action", "retry_all")
         if action == "retry_selected":
@@ -242,10 +243,13 @@ def errors_page() -> str:
                 if raw_document_id.strip().isdigit()
             )
             if len(selected_document_ids) == 0:
-                error_message = "请至少选择一条失败记录。"
+                error_message = "请至少选择一条可重试记录。"
             else:
                 action_result = services.error_record_service.retry_errors(
-                    RetryRequest(document_ids=selected_document_ids)
+                    RetryRequest(
+                        document_ids=selected_document_ids,
+                        include_fallback=include_fallback,
+                    )
                 )
         else:
             retry_all = request.form.get("retry_all") == "1" or action == "retry_all"
@@ -256,6 +260,7 @@ def errors_page() -> str:
                     document_id=int(document_id) if document_id else None,
                     file_path=file_path or None,
                     retry_all_failed=retry_all,
+                    include_fallback=include_fallback,
                 )
             )
 
@@ -264,6 +269,7 @@ def errors_page() -> str:
             file_name_keyword=filter_name or None,
             updated_after=_parse_datetime(updated_after_raw),
             updated_before=_parse_datetime(updated_before_raw),
+            include_fallback=include_fallback,
         )
     )
     return render_template(
@@ -275,6 +281,7 @@ def errors_page() -> str:
         filter_name=filter_name,
         updated_after_value=updated_after_raw,
         updated_before_value=updated_before_raw,
+        include_fallback=include_fallback,
     )
 
 

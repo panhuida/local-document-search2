@@ -216,7 +216,7 @@ class IndexTaskService:
                 return
 
             state.current_file_path = event.file_path
-            if event.status == "completed":
+            if event.status in {"completed", "fallback"}:
                 state.processed += 1
             elif event.status == "skipped":
                 state.skipped += 1

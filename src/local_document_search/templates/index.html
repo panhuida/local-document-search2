@@ -229,7 +229,7 @@
             <tr class="transition hover:bg-slate-50">
               <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
               <td class="px-4 py-3">
-                <span class="badge {% if item.status == 'completed' %}badge-success{% elif item.status == 'skipped' %}badge-warning{% elif item.status == 'failed' %}badge-danger{% else %}badge-neutral{% endif %}">
+                <span class="badge {% if item.status == 'completed' %}badge-success{% elif item.status == 'fallback' %}badge-warning{% elif item.status == 'skipped' %}badge-warning{% elif item.status == 'failed' %}badge-danger{% else %}badge-neutral{% endif %}">
                   {{ item.status }}
                 </span>
               </td>
@@ -339,6 +339,9 @@
       if (status === "completed") {
         return "索引任务已完成";
       }
+      if (status === "fallback") {
+        return "文件已索引，但正文回退为元数据";
+      }
       if (status === "cancelled") {
         return "索引任务已取消";
       }
@@ -351,6 +354,9 @@
     const badgeClass = (status) => {
       if (status === "completed") {
         return "badge-success";
+      }
+      if (status === "fallback") {
+        return "badge-warning";
       }
       if (status === "failed") {
         return "badge-danger";

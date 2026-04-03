@@ -7,6 +7,7 @@ from datetime import datetime
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from local_document_search.models import Document
 from local_document_search.utils import utc_now
@@ -61,12 +62,15 @@ class DocumentRepository:
 
     def list_failed_documents(
         self,
+        *,
+        include_fallback: bool = False,
         file_name_keyword: str | None = None,
         updated_after: datetime | None = None,
         updated_before: datetime | None = None,
     ) -> list[Document]:
-        """列出失败状态的文档记录，并支持基础筛选。"""
-        conditions = [Document.status == "failed"]
+        """列出失败文档，必要时一并包含回退为元数据索引的文档。"""
+        retryable_statuses = ("failed", "fallback") if include_fallback else ("failed",)
+        conditions: list[ColumnElement[bool]] = [Document.status.in_(retryable_statuses)]
         if file_name_keyword:
             conditions.append(Document.file_name.ilike(f"%{file_name_keyword}%"))
         if updated_after:

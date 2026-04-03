@@ -5,6 +5,15 @@
 项目支持 Markdown、PDF、Office、XMind、draw.io、HTML、图片、视频等多种文件类型，提供 CLI 与 Web UI 双入口，并遵循 **CLI 优先** 的设计原则：所有核心能力先落到 Service 层和 CLI，再由 Web UI 复用。
 
 
+## 界面
+
+### 搜索主页
+
+<p align="center">
+  <img src="docs\assets\search.png" alt="搜索主页">
+</p>
+
+
 ## 快速开始
 
 以下示例以 Windows PowerShell 为主；若使用 bash，可将 `Copy-Item` 替换为 `cp`。
@@ -93,16 +102,16 @@ uv run python run.py
 | `db init` | 初始化数据库、建表、建搜索对象、重建搜索索引 | `--format` `--verbose` `--quiet` | 不支持 | 已完成 |
 | `index` | 索引一个或多个目录 | `--recursive` `--since` `--type` `--force` `--dry-run` `--format` `--verbose` `--quiet` | 支持 | 已完成 |
 | `search` | 检索已索引文档 | `--limit` `--offset` `--format` | 不需要，命令本身只读 | 已完成 |
-| `errors list` | 查看失败记录 | `--name` `--updated-after` `--updated-before` `--format` | 不需要，命令本身只读 | 已完成 |
-| `errors retry` | 重试失败记录 | `--id` `--path` `--all-failed` `--dry-run` `--format` | 支持 | 已完成，推荐入口 |
-| `retry` | `errors retry` 的顶层兼容别名 | `document_id` `--all-failed` `--dry-run` `--format` | 支持 | 已完成，兼容别名 |
+| `errors list` | 查看失败记录，必要时可一并包含回退记录 | `--name` `--updated-after` `--updated-before` `--include-fallback` `--format` | 不需要，命令本身只读 | 已完成 |
+| `errors retry` | 重试失败记录，必要时可一并处理回退记录 | `--id` `--path` `--all-failed` `--include-fallback` `--dry-run` `--format` | 支持 | 已完成，推荐入口 |
+| `retry` | `errors retry` 的顶层兼容别名 | `document_id` `--all-failed` `--include-fallback` `--dry-run` `--format` | 支持 | 已完成，兼容别名 |
 | `clean` | 扫描并删除孤儿索引记录 | `--dry-run` `--type` `--path-keyword` `--format` | 支持 | 已完成 |
 
 补充说明：
 
 - 当前 CLI 主路径以 SQLite 为准，已具备完整可用性
 - `index --dry-run` 只预览扫描结果，不转换文件、不写库、不更新索引状态
-- `errors retry --dry-run` / `retry --dry-run` 只预览命中的失败记录，不执行真实重试
+- `errors retry --dry-run` / `retry --dry-run` 只预览命中的失败或回退记录，不执行真实重试
 - 所有命令路径都支持 `--help-plain`，输出适合 AI Agent 和脚本读取的纯文本帮助
 - 文档与帮助文案默认主推 `errors retry`；顶层 `retry` 仅作为兼容和快捷别名保留
 
@@ -114,7 +123,9 @@ uv run python doc-cli.py index "D:\docs" --dry-run
 uv run python doc-cli.py index "D:\docs" --force
 uv run python doc-cli.py search "历史"
 uv run python doc-cli.py errors list
+uv run python doc-cli.py errors list --include-fallback
 uv run python doc-cli.py errors retry --all-failed --dry-run
+uv run python doc-cli.py errors retry --all-failed --include-fallback
 uv run python doc-cli.py clean "D:\docs" --dry-run
 ```
 
@@ -188,18 +199,25 @@ local-document-search/
 
 ### 回退为元数据索引的文件如何重新转换？
 
-走强制重新索引。
-
-CLI：
-
-```shell
-uv run python doc-cli.py index "D:\documents\历史" --force --type xls
-```
+当前版本已经支持把“回退为元数据索引”的文档纳入错误记录的筛选和重试范围。
 
 Web：
 
-  - 打开“文档索引”
-  - 输入这个 .xls 所在目录
-  - 勾选“强制重新索引”
-  - 文件类型只选 xls
-  - 再执行索引
+- 打开“错误记录”页面
+- 勾选“包含回退记录”
+- 选择要重试的记录，点击“重试选中”
+- 或直接点击“重试全部问题记录”
+
+CLI：
+
+```powershell
+uv run python doc-cli.py errors list --include-fallback
+uv run python doc-cli.py errors retry --all-failed --include-fallback
+uv run python doc-cli.py retry --all-failed --include-fallback
+```
+
+说明：
+
+- 真失败记录的 `status` 为 `failed`
+- 回退为元数据索引的记录 `status` 为 `fallback`
+- 搜索结果仍会包含 `completed` 和 `fallback` 文档；只有 `failed` 文档不会出现在检索结果中

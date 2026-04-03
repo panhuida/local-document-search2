@@ -20,16 +20,20 @@ from local_document_search import (
     create_app,
 )
 from local_document_search.config import load_app_config
+from local_document_search.converters import ConverterFactory
+from local_document_search.converters.base import ConversionResult, ConversionStatus, ConversionType
 from local_document_search.exceptions import IndexCancelledError
 from local_document_search.persistence import database as database_module
 from local_document_search.persistence.database import get_session_factory, initialize_database
 from local_document_search.persistence.repositories import (
     DocumentRepository,
+    DocumentUpsertInput,
     IngestStateRepository,
 )
 from local_document_search.services import (
     CleanRequest,
     DocumentPreviewRequest,
+    ErrorListRequest,
     FileOpenRequest,
     IndexProgressEvent,
     IndexRequest,
@@ -57,6 +61,38 @@ def _wait_for_index_task_completion(
             return payload
         sleep(0.05)
     raise AssertionError(f"索引任务在 {timeout_seconds} 秒内未完成：{task_id}")
+
+
+def _insert_document_record(
+    *,
+    file_path: Path,
+    status: str,
+    content_markdown: str,
+    error_message: str | None,
+    conversion_type: ConversionType = ConversionType.DIRECT,
+) -> int:
+    """向测试数据库写入一条文档记录，并返回主键。"""
+
+    with get_session_factory()() as session:
+        repository = DocumentRepository(session)
+        document = repository.upsert(
+            DocumentUpsertInput(
+                file_name=file_path.name,
+                file_type=file_path.suffix.lower().lstrip(".") or None,
+                file_size=file_path.stat().st_size,
+                file_created_at=datetime.fromtimestamp(file_path.stat().st_ctime, tz=UTC),
+                file_modified_time=datetime.fromtimestamp(file_path.stat().st_mtime, tz=UTC),
+                file_path=str(file_path.resolve()),
+                content_markdown=content_markdown,
+                conversion_type=int(conversion_type),
+                status=status,
+                error_message=error_message,
+                source="fs",
+                source_url=None,
+            )
+        )
+        session.commit()
+        return int(document.id)
 
 
 def test_index_search_and_preview_services(
@@ -268,6 +304,74 @@ def test_retry_service_supports_dry_run_without_updating_failed_record(
     assert document is not None
     assert document.status == "failed"
     assert document.error_message is not None
+
+
+def test_search_service_includes_fallback_documents(
+    test_environment: Path,
+    tmp_path: Path,
+) -> None:
+    """验证回退为元数据索引的文档仍会出现在搜索结果中。"""
+
+    del test_environment
+    initialize_database()
+    fallback_file = tmp_path / "fallback.pdf"
+    fallback_file.write_bytes(b"%PDF-1.4 fallback")
+    _insert_document_record(
+        file_path=fallback_file,
+        status="fallback",
+        content_markdown="# 回退文档\n\n独特关键词 fallback-search-token",
+        error_message="转换失败后回退为元数据索引",
+        conversion_type=ConversionType.STRUCTURED_TO_MD,
+    )
+
+    container = build_service_container(force_reload=True)
+    search_result = container.search_service.search(
+        SearchRequest(query="fallback-search-token", limit=10)
+    )
+
+    assert search_result.total == 1
+    assert search_result.hits[0].file_name == fallback_file.name
+    assert search_result.hits[0].snippet is not None
+    assert "fallback-search-token" in search_result.hits[0].snippet
+
+
+def test_error_record_service_can_include_fallback_records(
+    test_environment: Path,
+    tmp_path: Path,
+) -> None:
+    """验证错误记录服务默认排除回退记录，并可按参数一并查询。"""
+
+    del test_environment
+    initialize_database()
+    failed_file = tmp_path / "failed.drawio"
+    failed_file.write_text("<mxfile><diagram>broken", encoding="utf-8")
+    fallback_file = tmp_path / "fallback.pdf"
+    fallback_file.write_bytes(b"%PDF-1.4 fallback")
+    _insert_document_record(
+        file_path=failed_file,
+        status="failed",
+        content_markdown="# failed",
+        error_message="转换失败",
+        conversion_type=ConversionType.DRAWIO_TO_MD,
+    )
+    _insert_document_record(
+        file_path=fallback_file,
+        status="fallback",
+        content_markdown="# fallback",
+        error_message="回退为元数据索引",
+        conversion_type=ConversionType.STRUCTURED_TO_MD,
+    )
+
+    container = build_service_container(force_reload=True)
+    default_result = container.error_record_service.list_errors(ErrorListRequest())
+    fallback_result = container.error_record_service.list_errors(
+        ErrorListRequest(include_fallback=True)
+    )
+
+    assert default_result.total == 1
+    assert [item.status for item in default_result.items] == ["failed"]
+    assert fallback_result.total == 2
+    assert {item.status for item in fallback_result.items} == {"failed", "fallback"}
 
 
 def test_index_service_excludes_assets_directories_by_default(
@@ -1113,6 +1217,85 @@ def test_errors_page_retry_selected_only_retries_checked_items(
     assert refreshed_second is not None
     assert refreshed_first.status == "completed"
     assert refreshed_second.status == "failed"
+
+
+def test_errors_page_can_include_and_retry_fallback_records(
+    test_environment: Path,
+    tmp_path: Path,
+) -> None:
+    """验证错误记录页可按筛选展示回退记录，并支持勾选后重试。"""
+
+    del test_environment
+    initialize_database()
+    container = build_service_container(force_reload=True)
+    fallback_file = tmp_path / "fallback.pdf"
+    fallback_file.write_bytes(b"%PDF-1.4 fallback")
+    fallback_document_id = _insert_document_record(
+        file_path=fallback_file,
+        status="fallback",
+        content_markdown="# fallback document",
+        error_message="回退为元数据索引",
+        conversion_type=ConversionType.STRUCTURED_TO_MD,
+    )
+
+    class FakeSuccessfulConverter:
+        """模拟重试后成功拿到全文的转换器。"""
+
+        def convert(self, source_path: Path) -> ConversionResult:
+            assert source_path == fallback_file
+            return ConversionResult(
+                content_markdown="# repaired fallback",
+                conversion_type=ConversionType.STRUCTURED_TO_MD,
+                status=ConversionStatus.COMPLETED,
+                error_message=None,
+            )
+
+    class FakeConverterFactory(ConverterFactory):
+        """为测试注入固定的成功转换器。"""
+
+        def __init__(self) -> None:
+            pass
+
+        def create_converter(self, source_path: Path) -> FakeSuccessfulConverter:
+            assert source_path == fallback_file
+            return FakeSuccessfulConverter()
+
+    container.error_record_service._converter_factory = FakeConverterFactory()
+    app = create_app(services=container)
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        default_response = client.get("/errors")
+        include_response = client.get("/errors?include_fallback=1")
+        retry_response = client.post(
+            "/errors",
+            data={
+                "action": "retry_selected",
+                "include_fallback": "1",
+                "selected_document_ids": [str(fallback_document_id)],
+            },
+        )
+
+    assert default_response.status_code == 200
+    assert fallback_file.name not in default_response.get_data(as_text=True)
+
+    assert include_response.status_code == 200
+    include_page = include_response.get_data(as_text=True)
+    assert fallback_file.name in include_page
+    assert "共 1 条问题记录" in include_page
+    assert "原因说明" in include_page
+
+    assert retry_response.status_code == 200
+    retry_page = retry_response.get_data(as_text=True)
+    assert "本次重试：共 1 条，成功 1，失败 0。" in retry_page
+    assert fallback_file.name not in retry_page
+
+    with get_session_factory()() as session:
+        refreshed_document = DocumentRepository(session).get_by_id(fallback_document_id)
+
+    assert refreshed_document is not None
+    assert refreshed_document.status == "completed"
+    assert refreshed_document.error_message is None
 
 
 def test_search_homepage_renders_search_shell(test_environment: Path) -> None:

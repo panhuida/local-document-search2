@@ -152,8 +152,8 @@ class LegacyBinaryOfficeConverter(BaseConverter):
             return ConversionResult(
                 content_markdown=_build_legacy_office_metadata_fallback(source_path, str(exc)),
                 conversion_type=ConversionType.STRUCTURED_TO_MD,
-                status=ConversionStatus.COMPLETED,
-                error_message=None,
+                status=ConversionStatus.FALLBACK,
+                error_message=str(exc),
             )
         except Exception as exc:
             logger.error("旧版 Office 处理失败：%s，原因：%s", source_path, exc)
@@ -201,8 +201,11 @@ class MarkItDownConverter(BaseConverter):
                         threshold_mb=self._very_large_file_threshold_mb,
                     ),
                     conversion_type=ConversionType.STRUCTURED_TO_MD,
-                    status=ConversionStatus.COMPLETED,
-                    error_message=None,
+                    status=ConversionStatus.FALLBACK,
+                    error_message=(
+                        f"当前文件大小已达到 {self._very_large_file_threshold_mb} MiB 以上，"
+                        "按大文件分级索引策略回退为元数据索引。"
+                    ),
                 )
             timeout_seconds = _resolve_markitdown_timeout_seconds(
                 source_path,
@@ -234,8 +237,8 @@ class MarkItDownConverter(BaseConverter):
             return ConversionResult(
                 content_markdown=_build_markitdown_metadata_fallback(source_path, error_message),
                 conversion_type=ConversionType.STRUCTURED_TO_MD,
-                status=ConversionStatus.COMPLETED,
-                error_message=None,
+                status=ConversionStatus.FALLBACK,
+                error_message=error_message,
             )
 
 

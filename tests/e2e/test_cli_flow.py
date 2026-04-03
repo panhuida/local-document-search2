@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from typer.testing import CliRunner
 
 from local_document_search.cli import app
+from local_document_search.converters.base import ConversionType
+from local_document_search.persistence.database import get_session_factory
+from local_document_search.persistence.repositories import DocumentRepository, DocumentUpsertInput
 
 runner = CliRunner()
 
@@ -103,6 +107,53 @@ def test_cli_dry_run_flow(test_environment: Path, copied_documents_dir: Path) ->
     assert retry_payload["planned"] == 1
     assert retry_payload["succeeded"] == 0
     assert retry_payload["failed"] == 0
+
+
+def test_cli_errors_list_can_include_fallback_records(
+    test_environment: Path,
+    tmp_path: Path,
+) -> None:
+    """验证 CLI 可通过 --include-fallback 列出回退记录。"""
+
+    del test_environment
+    db_result = runner.invoke(app, ["db", "init", "--format", "json"])
+    assert db_result.exit_code == 0
+
+    fallback_file = tmp_path / "fallback.pdf"
+    fallback_file.write_bytes(b"%PDF-1.4 fallback")
+    with get_session_factory()() as session:
+        repository = DocumentRepository(session)
+        repository.upsert(
+            DocumentUpsertInput(
+                file_name=fallback_file.name,
+                file_type="pdf",
+                file_size=fallback_file.stat().st_size,
+                file_created_at=datetime.fromtimestamp(fallback_file.stat().st_ctime, tz=UTC),
+                file_modified_time=datetime.fromtimestamp(fallback_file.stat().st_mtime, tz=UTC),
+                file_path=str(fallback_file.resolve()),
+                content_markdown="# fallback document",
+                conversion_type=int(ConversionType.STRUCTURED_TO_MD),
+                status="fallback",
+                error_message="回退为元数据索引",
+                source="fs",
+                source_url=None,
+            )
+        )
+        session.commit()
+
+    default_result = runner.invoke(app, ["errors", "list", "--format", "json"])
+    assert default_result.exit_code == 0
+    assert json.loads(default_result.stdout)["total"] == 0
+
+    include_result = runner.invoke(
+        app,
+        ["errors", "list", "--include-fallback", "--format", "json"],
+    )
+    assert include_result.exit_code == 0
+    include_payload = json.loads(include_result.stdout)
+    assert include_payload["total"] == 1
+    assert include_payload["include_fallback"] is True
+    assert include_payload["items"][0]["status"] == "fallback"
 
 
 def test_doc_cli_help_plain_outputs_machine_friendly_text(test_environment: Path) -> None:

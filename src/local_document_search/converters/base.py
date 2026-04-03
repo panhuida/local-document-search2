@@ -24,6 +24,7 @@ class ConversionStatus(StrEnum):
     """单文件转换结果状态。"""
 
     COMPLETED = "completed"
+    FALLBACK = "fallback"
     FAILED = "failed"
     SKIPPED = "skipped"
 

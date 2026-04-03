@@ -20,13 +20,23 @@
   <main class="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
     <section class="fade-up rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <p class="text-sm font-medium text-slate-500">筛选失败文档，并按需批量或逐条重试。</p>
+        <p class="text-sm font-medium text-slate-500">筛选失败或回退文档，并按需批量重试。</p>
       </div>
 
       <form method="get" class="mt-5 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(220px,0.8fr)_minmax(220px,0.8fr)_140px]">
         <input name="name" value="{{ filter_name }}" type="text" placeholder="按文件名过滤" class="field field-accent-red">
         <input name="updated_after" value="{{ updated_after_value }}" type="datetime-local" class="field field-accent-red">
         <input name="updated_before" value="{{ updated_before_value }}" type="datetime-local" class="field field-accent-red">
+        <label class="inline-flex items-center gap-3 rounded-[1.1rem] border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name="include_fallback"
+            value="1"
+            class="h-4 w-4 rounded border-slate-300 text-brand-red"
+            {% if include_fallback %}checked{% endif %}
+          >
+          包含回退记录
+        </label>
         <button class="btn btn-dark btn-main-action">筛选</button>
       </form>
     </section>
@@ -43,9 +53,9 @@
     {% endif %}
 
     <section class="fade-up fade-delay-2 mt-6 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6">
-      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-3">
-          <p class="text-sm font-medium text-slate-700">共 {{ result.total }} 条失败记录</p>
+          <p class="text-sm font-medium text-slate-700">共 {{ result.total }} 条{% if include_fallback %}问题记录{% else %}失败记录{% endif %}</p>
           <span class="text-sm text-slate-500" data-errors-selected-count>已选择 0 条</span>
         </div>
         <div class="flex flex-wrap items-center gap-3">
@@ -62,7 +72,8 @@
             <input type="hidden" name="name" value="{{ filter_name }}">
             <input type="hidden" name="updated_after" value="{{ updated_after_value }}">
             <input type="hidden" name="updated_before" value="{{ updated_before_value }}">
-            <button class="btn btn-primary btn-main-action">重试全部失败记录</button>
+            <input type="hidden" name="include_fallback" value="{{ '1' if include_fallback else '0' }}">
+            <button class="btn btn-primary btn-main-action">{% if include_fallback %}重试全部问题记录{% else %}重试全部失败记录{% endif %}</button>
           </form>
         </div>
       </div>
@@ -72,6 +83,7 @@
         <input type="hidden" name="name" value="{{ filter_name }}">
         <input type="hidden" name="updated_after" value="{{ updated_after_value }}">
         <input type="hidden" name="updated_before" value="{{ updated_before_value }}">
+        <input type="hidden" name="include_fallback" value="{{ '1' if include_fallback else '0' }}">
 
         <div class="mb-4 flex flex-wrap items-center gap-3">
           <label class="inline-flex items-center gap-3 text-sm text-slate-700">
@@ -87,8 +99,9 @@
                 <th class="px-4 py-3 text-left font-semibold text-slate-700">选择</th>
                 <th class="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
                 <th class="px-4 py-3 text-left font-semibold text-slate-700">文件名</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">状态</th>
                 <th class="px-4 py-3 text-left font-semibold text-slate-700">路径</th>
-                <th class="px-4 py-3 text-left font-semibold text-slate-700">错误信息</th>
+                <th class="px-4 py-3 text-left font-semibold text-slate-700">{% if include_fallback %}原因说明{% else %}错误信息{% endif %}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 bg-white">
@@ -105,12 +118,17 @@
                 </td>
                 <td class="px-4 py-3 text-slate-700">{{ item.document_id }}</td>
                 <td class="px-4 py-3 text-slate-900">{{ item.file_name }}</td>
+                <td class="px-4 py-3">
+                  <span class="badge {% if item.status == 'failed' %}badge-danger{% elif item.status == 'fallback' %}badge-warning{% else %}badge-neutral{% endif %}">
+                    {{ item.status }}
+                  </span>
+                </td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
                 <td class="px-4 py-3 text-slate-700">{{ item.error_message }}</td>
               </tr>
               {% else %}
               <tr>
-                <td colspan="5" class="px-4 py-10 text-center text-sm text-slate-400">当前没有失败记录。</td>
+                <td colspan="6" class="px-4 py-10 text-center text-sm text-slate-400">当前没有{% if include_fallback %}问题记录{% else %}失败记录{% endif %}。</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -166,7 +184,7 @@
         return;
       }
       event.preventDefault();
-      window.alert("请至少选择一条失败记录。");
+      window.alert("请至少选择一条可重试记录。");
     });
 
     updateSelectionState();

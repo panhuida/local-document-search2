@@ -304,13 +304,20 @@ class IndexService:
                             allow_legacy_replace=request.force,
                         )
 
-                        if conversion.status is ConversionStatus.COMPLETED:
+                        if conversion.status in {
+                            ConversionStatus.COMPLETED,
+                            ConversionStatus.FALLBACK,
+                        }:
                             scope_processed += 1
                             processed += 1
                             result = IndexFileResult(
                                 file_path=payload.file_path,
-                                status="completed",
-                                message="索引成功",
+                                status=str(conversion.status),
+                                message=(
+                                    conversion.error_message or "索引成功"
+                                    if conversion.status is ConversionStatus.FALLBACK
+                                    else "索引成功"
+                                ),
                                 document_id=document.id,
                             )
                         elif conversion.status is ConversionStatus.SKIPPED:

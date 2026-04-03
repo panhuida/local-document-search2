@@ -116,9 +116,10 @@ def test_legacy_binary_office_converter_falls_back_to_metadata(tmp_path: Path) -
 
     result = LegacyBinaryOfficeConverter(office_converter=fake_office_converter).convert(ppt_file)
 
-    assert result.status is ConversionStatus.COMPLETED
+    assert result.status is ConversionStatus.FALLBACK
     assert result.conversion_type is ConversionType.STRUCTURED_TO_MD
     assert result.content_markdown is not None
+    assert result.error_message is not None
     assert "旧版二进制 Office 格式" in result.content_markdown
     assert "Office 中手工正常打开" in result.content_markdown
 
@@ -144,8 +145,9 @@ def test_legacy_binary_office_converter_preserves_specific_com_failure_reason(
 
     result = LegacyBinaryOfficeConverter(office_converter=fake_office_converter).convert(xls_file)
 
-    assert result.status is ConversionStatus.COMPLETED
+    assert result.status is ConversionStatus.FALLBACK
     assert result.content_markdown is not None
+    assert result.error_message is not None
     assert "不能打开此文件" in result.content_markdown
     assert "Office 中手工正常打开" in result.content_markdown
 
@@ -241,8 +243,9 @@ def test_markitdown_converter_uses_metadata_index_for_very_large_files(
         large_file_index_mode=LargeFileIndexMode.METADATA,
     ).convert(pdf_file)
 
-    assert result.status is ConversionStatus.COMPLETED
+    assert result.status is ConversionStatus.FALLBACK
     assert result.content_markdown is not None
+    assert result.error_message is not None
     assert "大文件分级索引策略" in result.content_markdown
     assert "LARGE_FILE_INDEX_MODE" in result.content_markdown
 
@@ -290,7 +293,8 @@ def test_markitdown_converter_falls_back_to_metadata_on_general_failure(
 
     result = MarkItDownConverter().convert(pdf_file)
 
-    assert result.status is ConversionStatus.COMPLETED
+    assert result.status is ConversionStatus.FALLBACK
     assert result.content_markdown is not None
+    assert result.error_message is not None
     assert "回退为元数据索引" in result.content_markdown
     assert "PSEOF" in result.content_markdown

@@ -71,7 +71,7 @@ class SQLiteSearchBackend(SearchBackend):
             FROM documents_fts
             JOIN documents d ON d.id = documents_fts.rowid
             WHERE documents_fts MATCH :match_query
-              AND d.status = 'completed'
+              AND d.status IN ('completed', 'fallback')
             """
         )
         result = session.execute(
@@ -99,7 +99,7 @@ class SQLiteSearchBackend(SearchBackend):
             FROM documents_fts
             JOIN documents d ON d.id = documents_fts.rowid
             WHERE documents_fts MATCH :match_query
-              AND d.status = 'completed'
+              AND d.status IN ('completed', 'fallback')
             ORDER BY score ASC
             LIMIT :limit
             """
@@ -167,7 +167,7 @@ class SQLiteSearchBackend(SearchBackend):
                 f"""
                 SELECT COUNT(*)
                 FROM documents d
-                WHERE d.status = 'completed'
+                WHERE d.status IN ('completed', 'fallback')
                   AND {" AND ".join(term_clauses)}
                   {excluded_clause}
                 """,
@@ -185,7 +185,7 @@ class SQLiteSearchBackend(SearchBackend):
                 d.content_markdown,
                 NULL AS score
             FROM documents d
-            WHERE d.status = 'completed'
+            WHERE d.status IN ('completed', 'fallback')
               AND {" AND ".join(term_clauses)}
               {excluded_clause}
             ORDER BY COALESCE(d.file_modified_time, d.updated_at) DESC
