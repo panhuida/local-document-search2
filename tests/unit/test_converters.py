@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import subprocess
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from local_document_search.config import LargeFileIndexMode
 from local_document_search.converters import ConverterFactory
@@ -14,6 +17,7 @@ from local_document_search.converters.base import (
     ConversionStatus,
     ConversionType,
 )
+from local_document_search.converters.drawio import DrawioConverter
 from local_document_search.converters.markitdown import (
     HtmlConverter,
     LegacyBinaryOfficeConverter,
@@ -57,6 +61,71 @@ def test_html_converter_extracts_title_and_text(tmp_path: Path) -> None:
     assert result.content_markdown is not None
     assert "# 测试标题" in result.content_markdown
     assert "sample body" in result.content_markdown
+
+
+def test_drawio_converter_extracts_inline_mxgraphmodel_text(tmp_path: Path) -> None:
+    """验证 draw.io 转换器可提取内嵌 `mxGraphModel` 的节点文本。"""
+
+    drawio_file = tmp_path / "inline.drawio"
+    drawio_file.write_text(
+        (
+            '<mxfile host="app.diagrams.net" name="inline.drawio">'
+            '<diagram id="page-1" name="首页">'
+            "<mxGraphModel><root>"
+            '<mxCell id="0" />'
+            '<mxCell id="1" parent="0" />'
+            '<mxCell id="2" value="开始&lt;br&gt;节点" parent="1" vertex="1" />'
+            '<mxCell id="3" value="&lt;b&gt;结束&lt;/b&gt;" parent="1" vertex="1" />'
+            "</root></mxGraphModel>"
+            "</diagram>"
+            "</mxfile>"
+        ),
+        encoding="utf-8",
+    )
+
+    result = DrawioConverter().convert(drawio_file)
+
+    assert result.status is ConversionStatus.COMPLETED
+    assert result.content_markdown is not None
+    assert "## 首页" in result.content_markdown
+    assert "- 开始 节点" in result.content_markdown
+    assert "- 结束" in result.content_markdown
+
+
+def test_drawio_converter_extracts_compressed_diagram_text(tmp_path: Path) -> None:
+    """验证 draw.io 转换器可解码压缩页面中的文本节点。"""
+
+    compressed_xml = (
+        "<mxGraphModel><root>"
+        '<mxCell id="0" />'
+        '<mxCell id="1" parent="0" />'
+        '<mxCell id="2" value="需求入口" parent="1" vertex="1" />'
+        '<mxCell id="3" value="&lt;font color=&quot;#333333&quot;&gt;'
+        '分省版统计&lt;/font&gt;" parent="1" vertex="1" />'
+        "</root></mxGraphModel>"
+    )
+    compressor = zlib.compressobj(level=9, wbits=-15)
+    compressed_bytes = compressor.compress(quote(compressed_xml).encode("utf-8"))
+    compressed_bytes += compressor.flush()
+    encoded_diagram = base64.b64encode(compressed_bytes).decode("utf-8")
+
+    drawio_file = tmp_path / "compressed.drawio"
+    drawio_file.write_text(
+        (
+            '<mxfile host="Electron" name="compressed.drawio">'
+            f'<diagram id="page-1" name="第 1 页">{encoded_diagram}</diagram>'
+            "</mxfile>"
+        ),
+        encoding="utf-8",
+    )
+
+    result = DrawioConverter().convert(drawio_file)
+
+    assert result.status is ConversionStatus.COMPLETED
+    assert result.content_markdown is not None
+    assert "## 第 1 页" in result.content_markdown
+    assert "- 需求入口" in result.content_markdown
+    assert "- 分省版统计" in result.content_markdown
 
 
 def test_legacy_binary_office_converter_uses_com_conversion_result(tmp_path: Path) -> None:
