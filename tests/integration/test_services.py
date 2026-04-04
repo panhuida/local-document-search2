@@ -257,6 +257,76 @@ def test_index_service_supports_dry_run_without_writing_database(
     assert search_result.total == 0
 
 
+def test_index_service_commits_each_processed_file(
+    test_environment: Path,
+    tmp_path: Path,
+) -> None:
+    """验证单个文件成功后会立即提交，不会因后续异常整批回滚。"""
+
+    del test_environment
+    initialize_database()
+    container = build_service_container(force_reload=True)
+    docs_dir = tmp_path / "commit-per-file"
+    docs_dir.mkdir()
+    first_file = docs_dir / "first.md"
+    second_file = docs_dir / "second.md"
+    first_file.write_text("# first\n", encoding="utf-8")
+    second_file.write_text("# second\n", encoding="utf-8")
+
+    class _ExplodingConverter:
+        """首个文件返回成功，第二个文件模拟转换层异常。"""
+
+        def __init__(self, target_path: Path) -> None:
+            self._target_path = target_path
+
+        def convert(self, source_path: Path) -> ConversionResult:
+            assert source_path == self._target_path
+            if source_path == first_file:
+                return ConversionResult(
+                    content_markdown="# committed first",
+                    conversion_type=ConversionType.DIRECT,
+                    status=ConversionStatus.COMPLETED,
+                    error_message=None,
+                )
+            raise RuntimeError("模拟第二个文件在转换阶段崩溃")
+
+    class _ExplodingConverterFactory(ConverterFactory):
+        """为不同文件返回对应的测试转换器。"""
+
+        def __init__(self) -> None:
+            pass
+
+        def create_converter(self, source_path: Path) -> _ExplodingConverter:
+            return _ExplodingConverter(source_path)
+
+    container.index_service._converter_factory = _ExplodingConverterFactory()
+
+    result = container.index_service.index_documents(
+        IndexRequest(
+            paths=(docs_dir,),
+            recursive=True,
+            modified_since=None,
+            file_types=("md",),
+            force=False,
+        )
+    )
+
+    assert result.total_files == 2
+    assert result.processed == 1
+    assert result.errors == 1
+    assert any(item.file_path == str(first_file.resolve()) for item in result.files)
+    assert any(item.status == "failed" for item in result.files)
+
+    with get_session_factory()() as session:
+        repository = DocumentRepository(session)
+        committed_first = repository.get_by_path(str(first_file.resolve()))
+        committed_second = repository.get_by_path(str(second_file.resolve()))
+
+    assert committed_first is not None
+    assert committed_first.status == "completed"
+    assert committed_second is None
+
+
 def test_retry_service_supports_dry_run_without_updating_failed_record(
     test_environment: Path,
     copied_documents_dir: Path,

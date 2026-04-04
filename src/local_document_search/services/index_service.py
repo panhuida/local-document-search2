@@ -339,6 +339,8 @@ class IndexService:
                                 document_id=document.id,
                             )
 
+                        # 单文件写入成功后立即提交，避免长目录任务结束前数据库一直不可见。
+                        session.commit()
                         self._append_result(result_items, on_progress, result)
 
                     ingest_repository.finish_run(
