@@ -38,7 +38,9 @@ from local_document_search.services import (
     IndexProgressEvent,
     IndexRequest,
     IndexResult,
+    RetryItemResult,
     RetryRequest,
+    RetryResult,
     SearchRequest,
 )
 
@@ -61,6 +63,26 @@ def _wait_for_index_task_completion(
             return payload
         sleep(0.05)
     raise AssertionError(f"索引任务在 {timeout_seconds} 秒内未完成：{task_id}")
+
+
+def _wait_for_retry_task_completion(
+    client: FlaskClient,
+    task_id: str,
+    *,
+    timeout_seconds: float = 5.0,
+) -> dict[str, object]:
+    """轮询后台重试任务，直到结束或超时。"""
+
+    deadline = monotonic() + timeout_seconds
+    while monotonic() < deadline:
+        response = client.get(f"/errors/tasks/{task_id}")
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert isinstance(payload, dict)
+        if not bool(payload.get("is_active")):
+            return payload
+        sleep(0.05)
+    raise AssertionError(f"重试任务在 {timeout_seconds} 秒内未完成：{task_id}")
 
 
 def _insert_document_record(
@@ -1223,7 +1245,7 @@ def test_errors_page_retry_selected_only_retries_checked_items(
     test_environment: Path,
     tmp_path: Path,
 ) -> None:
-    """验证错误记录页批量重试时只处理勾选的失败记录。"""
+    """验证错误记录页批量重试会转为后台任务，并且只处理勾选的失败记录。"""
 
     del test_environment
     initialize_database()
@@ -1270,12 +1292,23 @@ def test_errors_page_retry_selected_only_retries_checked_items(
                 "action": "retry_selected",
                 "selected_document_ids": [str(first_document.id)],
             },
+            follow_redirects=False,
         )
+        assert response.status_code == 302
+        redirect_location = response.headers["Location"]
+        parsed_location = urlparse(redirect_location)
+        task_id = parse_qs(parsed_location.query)["task_id"][0]
+        task_payload = _wait_for_retry_task_completion(client, task_id)
+        page_response = client.get(redirect_location)
 
-    assert response.status_code == 200
-    page = response.get_data(as_text=True)
-    assert "本次重试：共 1 条，成功 1，失败 0。" in page
-    assert "first.drawio" not in page
+    assert page_response.status_code == 200
+    page = page_response.get_data(as_text=True)
+    assert task_payload["status"] == "completed"
+    assert task_payload["total_items"] == 1
+    assert task_payload["succeeded"] == 1
+    assert task_payload["failed"] == 0
+    assert task_id in page
+    assert "重试任务已完成" in page
     assert "second.drawio" in page
 
     with get_session_factory()() as session:
@@ -1287,6 +1320,87 @@ def test_errors_page_retry_selected_only_retries_checked_items(
     assert refreshed_second is not None
     assert refreshed_first.status == "completed"
     assert refreshed_second.status == "failed"
+
+
+def test_errors_page_keeps_retry_task_visible_when_switching_pages(
+    test_environment: Path,
+    copied_documents_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证错误重试任务启动后，切页再回到错误记录页仍能看到当前任务。"""
+
+    del test_environment
+    initialize_database()
+    container = build_service_container(force_reload=True)
+    container.index_service.index_documents(
+        IndexRequest(
+            paths=(copied_documents_dir,),
+            recursive=True,
+            modified_since=None,
+            file_types=tuple(),
+            force=False,
+        )
+    )
+
+    original_retry_errors = container.error_record_service.retry_errors
+
+    def slow_retry_errors(
+        request: RetryRequest,
+        *,
+        on_targets_resolved: Callable[[int], None] | None = None,
+        on_progress: Callable[[RetryItemResult], None] | None = None,
+    ) -> RetryResult:
+        sleep(0.2)
+        return original_retry_errors(
+            request,
+            on_targets_resolved=on_targets_resolved,
+            on_progress=on_progress,
+        )
+
+    monkeypatch.setattr(container.error_record_service, "retry_errors", slow_retry_errors)
+
+    with get_session_factory()() as session:
+        document = DocumentRepository(session).get_by_path(
+            str((copied_documents_dir / "broken.drawio").resolve())
+        )
+
+    assert document is not None
+
+    app = create_app(services=container)
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        response = client.post(
+            "/errors",
+            data={
+                "action": "retry_selected",
+                "selected_document_ids": [str(document.id)],
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        redirect_location = response.headers["Location"]
+        parsed_location = urlparse(redirect_location)
+        task_id = parse_qs(parsed_location.query)["task_id"][0]
+
+        sleep(0.05)
+        task_response = client.get(f"/errors/tasks/{task_id}")
+        assert task_response.status_code == 200
+        task_payload = task_response.get_json()
+        assert isinstance(task_payload, dict)
+        assert task_payload["is_active"] is True
+
+        search_response = client.get("/search")
+        assert search_response.status_code == 200
+
+        errors_page = client.get("/errors")
+        assert errors_page.status_code == 200
+        page = errors_page.get_data(as_text=True)
+        assert task_id in page
+        assert "重试任务" in page
+
+        completed_payload = _wait_for_retry_task_completion(client, task_id)
+        assert completed_payload["status"] == "completed"
 
 
 def test_errors_page_can_include_and_retry_fallback_records(
@@ -1344,7 +1458,14 @@ def test_errors_page_can_include_and_retry_fallback_records(
                 "include_fallback": "1",
                 "selected_document_ids": [str(fallback_document_id)],
             },
+            follow_redirects=False,
         )
+        assert retry_response.status_code == 302
+        redirect_location = retry_response.headers["Location"]
+        parsed_location = urlparse(redirect_location)
+        task_id = parse_qs(parsed_location.query)["task_id"][0]
+        task_payload = _wait_for_retry_task_completion(client, task_id)
+        page_response = client.get(redirect_location)
 
     assert default_response.status_code == 200
     assert fallback_file.name not in default_response.get_data(as_text=True)
@@ -1355,10 +1476,16 @@ def test_errors_page_can_include_and_retry_fallback_records(
     assert "共 1 条问题记录" in include_page
     assert "原因说明" in include_page
 
-    assert retry_response.status_code == 200
-    retry_page = retry_response.get_data(as_text=True)
-    assert "本次重试：共 1 条，成功 1，失败 0。" in retry_page
-    assert fallback_file.name not in retry_page
+    assert page_response.status_code == 200
+    retry_page = page_response.get_data(as_text=True)
+    assert task_payload["status"] == "completed"
+    assert task_payload["total_items"] == 1
+    assert task_payload["succeeded"] == 1
+    assert task_payload["failed"] == 0
+    assert task_id in retry_page
+    assert "重试任务已完成" in retry_page
+    assert "共 0 条问题记录" in retry_page
+    assert "当前没有问题记录。" in retry_page
 
     with get_session_factory()() as session:
         refreshed_document = DocumentRepository(session).get_by_id(fallback_document_id)

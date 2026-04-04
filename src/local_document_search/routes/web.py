@@ -23,6 +23,7 @@ from local_document_search.services import (
     IndexRequest,
     IndexTaskSnapshot,
     RetryRequest,
+    RetryTaskSnapshot,
     SearchRequest,
 )
 from local_document_search.utils import parse_datetime_string_to_aware_utc
@@ -97,6 +98,37 @@ def _serialize_index_task(task: IndexTaskSnapshot) -> dict[str, object]:
                 "document_id": item.document_id,
             }
             for item in task.files
+        ],
+    }
+
+
+def _serialize_retry_task(task: RetryTaskSnapshot) -> dict[str, object]:
+    """把重试任务快照转换为前端轮询使用的 JSON 结构。"""
+
+    return {
+        "task_id": task.task_id,
+        "status": task.status,
+        "created_at": task.created_at.isoformat(),
+        "started_at": task.started_at.isoformat() if task.started_at is not None else None,
+        "ended_at": task.ended_at.isoformat() if task.ended_at is not None else None,
+        "retry_all_failed": task.retry_all_failed,
+        "include_fallback": task.include_fallback,
+        "dry_run": task.dry_run,
+        "current_file_path": task.current_file_path,
+        "total_items": task.total_items,
+        "handled_items": task.handled_items,
+        "succeeded": task.succeeded,
+        "failed": task.failed,
+        "error_message": task.error_message,
+        "is_active": task.is_active,
+        "items": [
+            {
+                "document_id": item.document_id,
+                "file_path": item.file_path,
+                "status": item.status,
+                "message": item.message,
+            }
+            for item in task.items
         ],
     }
 
@@ -225,10 +257,10 @@ def search_page() -> str:
 
 
 @web_blueprint.route("/errors", methods=["GET", "POST"])
-def errors_page() -> str:
+def errors_page() -> ResponseReturnValue:
     """错误记录页面，支持查看和重试失败或回退文档。"""
     services = _services()
-    action_result = None
+    task: RetryTaskSnapshot | None = None
     error_message: str | None = None
     filter_name = request.values.get("name", "").strip()
     updated_after_raw = request.values.get("updated_after", "").strip()
@@ -245,17 +277,27 @@ def errors_page() -> str:
             if len(selected_document_ids) == 0:
                 error_message = "请至少选择一条可重试记录。"
             else:
-                action_result = services.error_record_service.retry_errors(
+                task = services.retry_task_service.start_task(
                     RetryRequest(
                         document_ids=selected_document_ids,
                         include_fallback=include_fallback,
+                    )
+                )
+                return redirect(
+                    url_for(
+                        "web.errors_page",
+                        task_id=task.task_id,
+                        name=filter_name,
+                        updated_after=updated_after_raw,
+                        updated_before=updated_before_raw,
+                        include_fallback="1" if include_fallback else "0",
                     )
                 )
         else:
             retry_all = request.form.get("retry_all") == "1" or action == "retry_all"
             document_id = request.form.get("document_id")
             file_path = request.form.get("file_path")
-            action_result = services.error_record_service.retry_errors(
+            task = services.retry_task_service.start_task(
                 RetryRequest(
                     document_id=int(document_id) if document_id else None,
                     file_path=file_path or None,
@@ -263,6 +305,24 @@ def errors_page() -> str:
                     include_fallback=include_fallback,
                 )
             )
+            return redirect(
+                url_for(
+                    "web.errors_page",
+                    task_id=task.task_id,
+                    name=filter_name,
+                    updated_after=updated_after_raw,
+                    updated_before=updated_before_raw,
+                    include_fallback="1" if include_fallback else "0",
+                )
+            )
+
+    task_id = request.args.get("task_id", "").strip()
+    if task_id:
+        task = services.retry_task_service.get_task(task_id)
+        if task is None:
+            error_message = "重试任务不存在或已过期，请重新提交。"
+    else:
+        task = services.retry_task_service.get_latest_task()
 
     error_list_result = services.error_record_service.list_errors(
         ErrorListRequest(
@@ -276,13 +336,24 @@ def errors_page() -> str:
         "errors.html",
         active_nav="errors",
         result=error_list_result,
-        action_result=action_result,
+        task=task,
+        task_payload=_serialize_retry_task(task) if task is not None else None,
         error_message=error_message,
         filter_name=filter_name,
         updated_after_value=updated_after_raw,
         updated_before_value=updated_before_raw,
         include_fallback=include_fallback,
     )
+
+
+@web_blueprint.route("/errors/tasks/<task_id>")
+def retry_task_status(task_id: str) -> ResponseReturnValue:
+    """返回重试后台任务的当前状态，供前端轮询。"""
+
+    task = _services().retry_task_service.get_task(task_id)
+    if task is None:
+        return jsonify({"message": "重试任务不存在或已过期。"}), 404
+    return jsonify(_serialize_retry_task(task))
 
 
 @web_blueprint.route("/clean", methods=["GET", "POST"])

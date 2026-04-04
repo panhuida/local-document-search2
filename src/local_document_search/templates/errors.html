@@ -41,14 +41,111 @@
       </form>
     </section>
 
-    {% if action_result %}
-    <section class="fade-up fade-delay-1 alert alert-success mt-6">
-      本次重试：共 {{ action_result.total }} 条，成功 {{ action_result.succeeded }}，失败 {{ action_result.failed }}。
-    </section>
-    {% endif %}
     {% if error_message %}
     <section class="fade-up fade-delay-1 alert alert-danger mt-6">
       {{ error_message }}
+    </section>
+    {% endif %}
+    {% if task %}
+    <section
+      class="fade-up fade-delay-1 mt-6 rounded-[1.5rem] bg-white p-5 shadow-[0_12px_36px_rgba(15,23,42,0.06)] sm:p-6"
+      data-retry-task-root
+      data-status-url="{{ url_for('web.retry_task_status', task_id=task.task_id) }}"
+    >
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-3">
+            {% if task.is_active %}
+            <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-brand-red border-t-transparent"></span>
+            {% endif %}
+            <p class="text-base font-semibold text-slate-900" data-task-status-text>
+              {% if task.status == "queued" %}
+              重试任务已创建，正在排队
+              {% elif task.status == "running" %}
+              重试任务正在后台执行
+              {% elif task.status == "completed" %}
+              重试任务已完成
+              {% else %}
+              重试任务执行失败
+              {% endif %}
+            </p>
+            <span
+              class="badge {% if task.status == 'completed' %}badge-success{% elif task.status == 'failed' %}badge-danger{% elif task.status == 'running' %}badge-info{% else %}badge-warning{% endif %}"
+              data-task-status-badge
+            >
+              {{ task.status }}
+            </span>
+          </div>
+          <p class="mt-2 text-sm text-slate-500" data-task-current-file>
+            {% if task.current_file_path %}
+            当前文件：{{ task.current_file_path }}
+            {% elif task.is_active %}
+            当前文件：等待首条记录开始处理
+            {% else %}
+            当前文件：任务已结束
+            {% endif %}
+          </p>
+        </div>
+        <div class="flex flex-col items-start gap-3 lg:items-end">
+          <p class="text-xs text-slate-400">
+            任务 ID：<span class="font-mono">{{ task.task_id }}</span>
+          </p>
+        </div>
+      </div>
+
+      <div
+        class="alert alert-danger mt-4 {% if not task.error_message %}hidden{% endif %}"
+        data-task-error
+      >
+        {{ task.error_message or "" }}
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+        <div class="stat-card stat-card-neutral">
+          <p class="stat-card-title">总计</p>
+          <p class="stat-card-value" data-task-total>{{ task.total_items if task.total_items is not none else "--" }}</p>
+          <p class="stat-card-note text-slate-500" data-task-handled-note>已处理 {{ task.handled_items }}</p>
+        </div>
+        <div class="stat-card stat-card-success">
+          <p class="stat-card-title">成功</p>
+          <p class="stat-card-value" data-task-succeeded>{{ task.succeeded }}</p>
+        </div>
+        <div class="stat-card stat-card-danger">
+          <p class="stat-card-title">失败</p>
+          <p class="stat-card-value" data-task-failed>{{ task.failed }}</p>
+        </div>
+      </div>
+
+      <div class="mt-4 overflow-x-auto rounded-[1.25rem] border border-slate-200">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">路径</th>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">状态</th>
+              <th class="px-4 py-3 text-left font-semibold text-slate-700">消息</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 bg-white" data-task-table-body>
+            {% for item in task.items %}
+            <tr class="transition hover:bg-slate-50">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ item.file_path }}</td>
+              <td class="px-4 py-3">
+                <span class="badge {% if item.status == 'completed' %}badge-success{% elif item.status == 'fallback' %}badge-warning{% elif item.status == 'failed' %}badge-danger{% else %}badge-neutral{% endif %}">
+                  {{ item.status }}
+                </span>
+              </td>
+              <td class="px-4 py-3 text-slate-700">{{ item.message }}</td>
+            </tr>
+            {% else %}
+            <tr data-empty-row>
+              <td colspan="3" class="px-4 py-10 text-center text-sm text-slate-400">
+                当前还没有可展示的重试明细。
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </section>
     {% endif %}
 
@@ -63,8 +160,10 @@
             form="errors-batch-form"
             class="btn btn-secondary btn-main-action"
             data-errors-retry-button
+            data-errors-retry-selected-button
+            {% if task and task.is_active %}disabled aria-disabled="true"{% endif %}
           >
-            重试选中
+            {% if task and task.is_active %}重试中...{% else %}重试选中{% endif %}
           </button>
           <form method="post">
             <input type="hidden" name="action" value="retry_all">
@@ -73,7 +172,15 @@
             <input type="hidden" name="updated_after" value="{{ updated_after_value }}">
             <input type="hidden" name="updated_before" value="{{ updated_before_value }}">
             <input type="hidden" name="include_fallback" value="{{ '1' if include_fallback else '0' }}">
-            <button class="btn btn-primary btn-main-action">{% if include_fallback %}重试全部问题记录{% else %}重试全部失败记录{% endif %}</button>
+            <button class="btn btn-primary btn-main-action" data-errors-retry-all-button {% if task and task.is_active %}disabled aria-disabled="true"{% endif %}>
+              {% if task and task.is_active %}
+              重试中...
+              {% elif include_fallback %}
+              重试全部问题记录
+              {% else %}
+              重试全部失败记录
+              {% endif %}
+            </button>
           </form>
         </div>
       </div>
@@ -190,4 +297,198 @@
     updateSelectionState();
   })();
 </script>
+{% if task and task_payload %}
+<script>
+  (() => {
+    const root = document.querySelector("[data-retry-task-root]");
+    if (!(root instanceof HTMLElement)) {
+      return;
+    }
+
+    const statusUrl = root.dataset.statusUrl;
+    if (!statusUrl) {
+      return;
+    }
+
+    const initialTask = {{ task_payload | tojson }};
+    const retrySelectedButton = document.querySelector("[data-errors-retry-selected-button]");
+    const retryAllButton = document.querySelector("[data-errors-retry-all-button]");
+    const statusText = root.querySelector("[data-task-status-text]");
+    const statusBadge = root.querySelector("[data-task-status-badge]");
+    const currentFile = root.querySelector("[data-task-current-file]");
+    const totalValue = root.querySelector("[data-task-total]");
+    const handledNote = root.querySelector("[data-task-handled-note]");
+    const succeededValue = root.querySelector("[data-task-succeeded]");
+    const failedValue = root.querySelector("[data-task-failed]");
+    const errorBox = root.querySelector("[data-task-error]");
+    const tableBody = root.querySelector("[data-task-table-body]");
+
+    const statusLabel = (status) => {
+      if (status === "queued") {
+        return "重试任务已创建，正在排队";
+      }
+      if (status === "running") {
+        return "重试任务正在后台执行";
+      }
+      if (status === "completed") {
+        return "重试任务已完成";
+      }
+      if (status === "failed") {
+        return "重试任务执行失败";
+      }
+      return status;
+    };
+
+    const badgeClass = (status) => {
+      if (status === "completed") {
+        return "badge-success";
+      }
+      if (status === "failed") {
+        return "badge-danger";
+      }
+      if (status === "running") {
+        return "badge-info";
+      }
+      return "badge-warning";
+    };
+
+    const rowBadgeClass = (status) => {
+      if (status === "completed") {
+        return "badge-success";
+      }
+      if (status === "fallback") {
+        return "badge-warning";
+      }
+      if (status === "failed") {
+        return "badge-danger";
+      }
+      return "badge-neutral";
+    };
+
+    const escapeHtml = (value) =>
+      String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+    const renderRows = (items) => {
+      if (!(tableBody instanceof HTMLElement)) {
+        return;
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        tableBody.innerHTML = `
+          <tr data-empty-row>
+            <td colspan="3" class="px-4 py-10 text-center text-sm text-slate-400">
+              当前还没有可展示的重试明细。
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tableBody.innerHTML = items
+        .map((item) => {
+          const status = typeof item.status === "string" ? item.status : "unknown";
+          return `
+            <tr class="transition hover:bg-slate-50">
+              <td class="px-4 py-3 font-mono text-xs text-slate-500">${escapeHtml(item.file_path ?? "")}</td>
+              <td class="px-4 py-3">
+                <span class="badge ${rowBadgeClass(status)}">${escapeHtml(status)}</span>
+              </td>
+              <td class="px-4 py-3 text-slate-700">${escapeHtml(item.message ?? "")}</td>
+            </tr>
+          `;
+        })
+        .join("");
+    };
+
+    const updateRetryButtons = (task) => {
+      if (retrySelectedButton instanceof HTMLButtonElement) {
+        retrySelectedButton.disabled = Boolean(task.is_active);
+        retrySelectedButton.textContent = task.is_active ? "重试中..." : "重试选中";
+      }
+      if (retryAllButton instanceof HTMLButtonElement) {
+        retryAllButton.disabled = Boolean(task.is_active);
+        if (task.is_active) {
+          retryAllButton.textContent = "重试中...";
+        } else if (task.include_fallback) {
+          retryAllButton.textContent = "重试全部问题记录";
+        } else {
+          retryAllButton.textContent = "重试全部失败记录";
+        }
+      }
+    };
+
+    const renderTask = (task) => {
+      if (statusText instanceof HTMLElement) {
+        statusText.textContent = statusLabel(task.status);
+      }
+      if (statusBadge instanceof HTMLElement) {
+        statusBadge.textContent = task.status;
+        statusBadge.className = `badge ${badgeClass(task.status)}`;
+      }
+      if (currentFile instanceof HTMLElement) {
+        if (task.current_file_path) {
+          currentFile.textContent = `当前文件：${task.current_file_path}`;
+        } else if (task.is_active) {
+          currentFile.textContent = "当前文件：等待首条记录开始处理";
+        } else {
+          currentFile.textContent = "当前文件：任务已结束";
+        }
+      }
+      if (totalValue instanceof HTMLElement) {
+        totalValue.textContent = task.total_items == null ? "--" : String(task.total_items);
+      }
+      if (handledNote instanceof HTMLElement) {
+        handledNote.textContent = `已处理 ${task.handled_items}`;
+      }
+      if (succeededValue instanceof HTMLElement) {
+        succeededValue.textContent = String(task.succeeded ?? 0);
+      }
+      if (failedValue instanceof HTMLElement) {
+        failedValue.textContent = String(task.failed ?? 0);
+      }
+      if (errorBox instanceof HTMLElement) {
+        if (typeof task.error_message === "string" && task.error_message !== "") {
+          errorBox.textContent = task.error_message;
+          errorBox.classList.remove("hidden");
+        } else {
+          errorBox.textContent = "";
+          errorBox.classList.add("hidden");
+        }
+      }
+
+      renderRows(task.items);
+      updateRetryButtons(task);
+    };
+
+    const pollTask = async () => {
+      try {
+        const response = await fetch(statusUrl, {
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const task = await response.json();
+        renderTask(task);
+        if (task.is_active) {
+          window.setTimeout(pollTask, 1200);
+        }
+      } catch (error) {
+        console.error("重试任务轮询失败", error);
+        window.setTimeout(pollTask, 2500);
+      }
+    };
+
+    renderTask(initialTask);
+    if (initialTask.is_active) {
+      window.setTimeout(pollTask, 600);
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}

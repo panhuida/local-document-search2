@@ -37,6 +37,10 @@ from local_document_search.services.index_task_service import (
     IndexTaskService,
     IndexTaskSnapshot,
 )
+from local_document_search.services.retry_task_service import (
+    RetryTaskService,
+    RetryTaskSnapshot,
+)
 from local_document_search.services.search_service import (
     SearchHit,
     SearchRequest,
@@ -70,6 +74,8 @@ __all__ = [
     "RetryItemResult",
     "RetryRequest",
     "RetryResult",
+    "RetryTaskService",
+    "RetryTaskSnapshot",
     "SearchHit",
     "SearchRequest",
     "SearchResult",

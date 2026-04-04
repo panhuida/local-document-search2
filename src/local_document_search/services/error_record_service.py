@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -133,8 +134,14 @@ class ErrorRecordService:
                 items=items,
             )
 
-    def retry_errors(self, request: RetryRequest) -> RetryResult:
-        """按请求范围重新转换失败或回退文档。"""
+    def retry_errors(
+        self,
+        request: RetryRequest,
+        *,
+        on_targets_resolved: Callable[[int], None] | None = None,
+        on_progress: Callable[[RetryItemResult], None] | None = None,
+    ) -> RetryResult:
+        """按请求范围重新转换失败或回退文档，并在需要时上报进度。"""
         items: list[RetryItemResult] = []
         succeeded = 0
         failed = 0
@@ -142,22 +149,25 @@ class ErrorRecordService:
         with self._session_factory() as session:
             repository = DocumentRepository(session)
             targets = self._resolve_targets(repository, request)
+            if on_targets_resolved is not None:
+                on_targets_resolved(len(targets))
 
             if request.dry_run:
                 for document in targets:
                     source_path = Path(document.file_path)
-                    items.append(
-                        RetryItemResult(
-                            document_id=document.id,
-                            file_path=document.file_path,
-                            status="planned",
-                            message=(
-                                "原文件不存在，实际执行将失败"
-                                if not source_path.exists()
-                                else "命中重试范围，dry-run 未执行实际重试"
-                            ),
-                        )
+                    item = RetryItemResult(
+                        document_id=document.id,
+                        file_path=document.file_path,
+                        status="planned",
+                        message=(
+                            "原文件不存在，实际执行将失败"
+                            if not source_path.exists()
+                            else "命中重试范围，dry-run 未执行实际重试"
+                        ),
                     )
+                    items.append(item)
+                    if on_progress is not None:
+                        on_progress(item)
                 return RetryResult(
                     total=len(items),
                     planned=len(items),
@@ -187,15 +197,17 @@ class ErrorRecordService:
                             source_url=document.source_url,
                         )
                     )
+                    session.commit()
                     failed += 1
-                    items.append(
-                        RetryItemResult(
-                            document_id=document.id,
-                            file_path=document.file_path,
-                            status="failed",
-                            message="文件不存在，无法重试",
-                        )
+                    item = RetryItemResult(
+                        document_id=document.id,
+                        file_path=document.file_path,
+                        status="failed",
+                        message="文件不存在，无法重试",
                     )
+                    items.append(item)
+                    if on_progress is not None:
+                        on_progress(item)
                     continue
 
                 converter = self._converter_factory.create_converter(source_path)
@@ -219,39 +231,35 @@ class ErrorRecordService:
                         source_url=document.source_url,
                     )
                 )
+                session.commit()
 
                 if conversion.status is ConversionStatus.COMPLETED:
                     succeeded += 1
-                    items.append(
-                        RetryItemResult(
-                            document_id=document.id,
-                            file_path=str(source_path.resolve()),
-                            status="completed",
-                            message="重试成功",
-                        )
+                    item = RetryItemResult(
+                        document_id=document.id,
+                        file_path=str(source_path.resolve()),
+                        status="completed",
+                        message="重试成功",
                     )
                 elif conversion.status is ConversionStatus.FALLBACK:
                     failed += 1
-                    items.append(
-                        RetryItemResult(
-                            document_id=document.id,
-                            file_path=str(source_path.resolve()),
-                            status="fallback",
-                            message=conversion.error_message or "重试后仍回退为元数据索引",
-                        )
+                    item = RetryItemResult(
+                        document_id=document.id,
+                        file_path=str(source_path.resolve()),
+                        status="fallback",
+                        message=conversion.error_message or "重试后仍回退为元数据索引",
                     )
                 else:
                     failed += 1
-                    items.append(
-                        RetryItemResult(
-                            document_id=document.id,
-                            file_path=str(source_path.resolve()),
-                            status=str(conversion.status),
-                            message=conversion.error_message or "重试失败",
-                        )
+                    item = RetryItemResult(
+                        document_id=document.id,
+                        file_path=str(source_path.resolve()),
+                        status=str(conversion.status),
+                        message=conversion.error_message or "重试失败",
                     )
-
-            session.commit()
+                items.append(item)
+                if on_progress is not None:
+                    on_progress(item)
 
         return RetryResult(
             total=len(items),

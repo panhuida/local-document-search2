@@ -20,6 +20,7 @@ from local_document_search.services import (
     FileOpenerService,
     IndexService,
     IndexTaskService,
+    RetryTaskService,
     SearchService,
 )
 from local_document_search.utils import format_datetime_for_local_display
@@ -35,6 +36,7 @@ class ServiceContainer:
     index_task_service: IndexTaskService
     search_service: SearchService
     error_record_service: ErrorRecordService
+    retry_task_service: RetryTaskService
     clean_service: CleanService
     document_service: DocumentService
     file_opener_service: FileOpenerService
@@ -67,15 +69,17 @@ def _create_service_container(config: AppConfig) -> ServiceContainer:
         excluded_dir_keywords=config.excluded_dir_keywords,
         converter_factory=converter_factory,
     )
+    error_record_service = ErrorRecordService(
+        session_factory,
+        converter_factory=converter_factory,
+    )
     return ServiceContainer(
         config=config,
         index_service=index_service,
         index_task_service=IndexTaskService(index_service),
         search_service=SearchService(session_factory, config.database_backend),
-        error_record_service=ErrorRecordService(
-            session_factory,
-            converter_factory=converter_factory,
-        ),
+        error_record_service=error_record_service,
+        retry_task_service=RetryTaskService(error_record_service),
         clean_service=CleanService(session_factory),
         document_service=DocumentService(session_factory),
         file_opener_service=FileOpenerService(session_factory),
