@@ -14,6 +14,7 @@ from local_document_search.converters.markitdown import (
     MarkItDownConverter,
     MediaMetadataConverter,
 )
+from local_document_search.converters.pdf import PdfConverter
 from local_document_search.converters.xmind import XMindConverter
 from local_document_search.exceptions import UnsupportedFileTypeError
 from local_document_search.file_types.registry import (
@@ -40,9 +41,15 @@ class ConverterFactory:
             very_large_file_threshold_mb=very_large_file_threshold_mb,
             large_file_index_mode=large_file_index_mode,
         )
+        pdf_converter = PdfConverter(
+            markitdown_converter=markitdown_converter,
+            very_large_file_threshold_mb=very_large_file_threshold_mb,
+            large_file_index_mode=large_file_index_mode,
+        )
         self._converter_map: dict[FileTypeHandlerKind, BaseConverter] = {
             FileTypeHandlerKind.DIRECT_TEXT: DirectTextConverter(),
             FileTypeHandlerKind.HTML: HtmlConverter(),
+            FileTypeHandlerKind.PDF: pdf_converter,
             FileTypeHandlerKind.MARKITDOWN: markitdown_converter,
             FileTypeHandlerKind.LEGACY_BINARY_OFFICE: LegacyBinaryOfficeConverter(
                 structured_converter=markitdown_converter

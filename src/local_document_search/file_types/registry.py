@@ -11,6 +11,7 @@ class FileTypeHandlerKind(StrEnum):
 
     DIRECT_TEXT = "direct_text"
     HTML = "html"
+    PDF = "pdf"
     MARKITDOWN = "markitdown"
     LEGACY_BINARY_OFFICE = "legacy_binary_office"
     XMIND = "xmind"
@@ -28,7 +29,7 @@ class FileTypeDefinition:
 
 
 FILE_TYPE_DEFINITIONS: tuple[FileTypeDefinition, ...] = (
-    FileTypeDefinition("pdf", FileTypeHandlerKind.MARKITDOWN),
+    FileTypeDefinition("pdf", FileTypeHandlerKind.PDF),
     FileTypeDefinition("docx", FileTypeHandlerKind.MARKITDOWN),
     FileTypeDefinition("xlsx", FileTypeHandlerKind.MARKITDOWN),
     FileTypeDefinition("pptx", FileTypeHandlerKind.MARKITDOWN),

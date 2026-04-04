@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
 
+import local_document_search.converters.pdf as pdf_converter_module
 from local_document_search.config import LargeFileIndexMode
 from local_document_search.converters import ConverterFactory
 from local_document_search.converters.base import (
@@ -28,6 +29,7 @@ from local_document_search.converters.office_com import (
     LegacyOfficeComUnavailableError,
     _extract_office_com_detail,
 )
+from local_document_search.converters.pdf import PdfConverter
 
 
 def test_converter_factory_returns_expected_converter() -> None:
@@ -35,6 +37,15 @@ def test_converter_factory_returns_expected_converter() -> None:
     factory = ConverterFactory()
     converter = factory.create_converter(Path("note.md"))
     assert converter.__class__.__name__ == "DirectTextConverter"
+
+
+def test_converter_factory_routes_pdf_to_dedicated_pdf_converter() -> None:
+    """验证 PDF 文件会分流到专用 PDF 转换器。"""
+
+    factory = ConverterFactory()
+    converter = factory.create_converter(Path("sample.pdf"))
+
+    assert isinstance(converter, PdfConverter)
 
 
 def test_converter_factory_supports_flv_and_rejects_markdown_extension() -> None:
@@ -367,3 +378,167 @@ def test_markitdown_converter_falls_back_to_metadata_on_general_failure(
     assert result.error_message is not None
     assert "回退为元数据索引" in result.content_markdown
     assert "PSEOF" in result.content_markdown
+
+
+def test_pdf_converter_returns_pymupdf_result_when_quality_is_good(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证 PDF 专用转换器会优先采用质量合格的 PyMuPDF 结果。"""
+
+    pdf_file = tmp_path / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4")
+    markitdown_converter = MarkItDownConverter()
+
+    def fake_extract_pdf_with_pymupdf(source_path: Path) -> str:
+        assert source_path == pdf_file
+        return "## 第 1 页\n\nPython 爬虫实战讲稿\n\nrequests BeautifulSoup 数据提取。"
+
+    def fake_markitdown_convert(source_path: Path) -> ConversionResult:
+        assert source_path == pdf_file
+        return ConversionResult(
+            content_markdown=None,
+            conversion_type=ConversionType.STRUCTURED_TO_MD,
+            status=ConversionStatus.FAILED,
+            error_message="MarkItDown 失败。",
+        )
+
+    monkeypatch.setattr(
+        pdf_converter_module, "_extract_pdf_with_pymupdf", fake_extract_pdf_with_pymupdf
+    )
+    monkeypatch.setattr(markitdown_converter, "convert", fake_markitdown_convert)
+
+    result = PdfConverter(
+        markitdown_converter=markitdown_converter,
+        very_large_file_threshold_mb=50,
+        large_file_index_mode=LargeFileIndexMode.METADATA,
+    ).convert(pdf_file)
+
+    assert result.status is ConversionStatus.COMPLETED
+    assert result.content_markdown is not None
+    assert "Python 爬虫实战讲稿" in result.content_markdown
+
+
+def test_pdf_converter_uses_markitdown_when_pymupdf_result_looks_garbled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证 PyMuPDF 结果疑似乱码时，会回退采用 MarkItDown 的高质量结果。"""
+
+    pdf_file = tmp_path / "garbled.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4")
+    markitdown_converter = MarkItDownConverter()
+
+    def fake_extract_pdf_with_pymupdf(source_path: Path) -> str:
+        assert source_path == pdf_file
+        return "## 第 1 页\n\n(cid:12)(cid:34)(cid:56)\n\ue312\ue455\ue678"
+
+    def fake_markitdown_convert(source_path: Path) -> ConversionResult:
+        assert source_path == pdf_file
+        return ConversionResult(
+            content_markdown="# 掘金爬虫讲稿\n\n介绍 requests、XPath 与反爬处理。",
+            conversion_type=ConversionType.STRUCTURED_TO_MD,
+            status=ConversionStatus.COMPLETED,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(
+        pdf_converter_module, "_extract_pdf_with_pymupdf", fake_extract_pdf_with_pymupdf
+    )
+    monkeypatch.setattr(markitdown_converter, "convert", fake_markitdown_convert)
+
+    result = PdfConverter(
+        markitdown_converter=markitdown_converter,
+        very_large_file_threshold_mb=50,
+        large_file_index_mode=LargeFileIndexMode.METADATA,
+    ).convert(pdf_file)
+
+    assert result.status is ConversionStatus.COMPLETED
+    assert result.content_markdown == "# 掘金爬虫讲稿\n\n介绍 requests、XPath 与反爬处理。"
+
+
+def test_pdf_converter_falls_back_when_all_extracted_text_looks_garbled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证多个 PDF 提取引擎结果都疑似乱码时，会回退为元数据索引。"""
+
+    pdf_file = tmp_path / "broken-quality.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4")
+    markitdown_converter = MarkItDownConverter()
+
+    def fake_extract_pdf_with_pymupdf(source_path: Path) -> str:
+        assert source_path == pdf_file
+        return "## 第 1 页\n\n(cid:1)(cid:2)(cid:3)"
+
+    def fake_markitdown_convert(source_path: Path) -> ConversionResult:
+        assert source_path == pdf_file
+        return ConversionResult(
+            content_markdown="## 第 1 页\n\n\ue101\ue102\ue103",
+            conversion_type=ConversionType.STRUCTURED_TO_MD,
+            status=ConversionStatus.COMPLETED,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(
+        pdf_converter_module, "_extract_pdf_with_pymupdf", fake_extract_pdf_with_pymupdf
+    )
+    monkeypatch.setattr(markitdown_converter, "convert", fake_markitdown_convert)
+
+    result = PdfConverter(
+        markitdown_converter=markitdown_converter,
+        very_large_file_threshold_mb=50,
+        large_file_index_mode=LargeFileIndexMode.METADATA,
+    ).convert(pdf_file)
+
+    assert result.status is ConversionStatus.FALLBACK
+    assert result.content_markdown is not None
+    assert result.error_message is not None
+    assert "疑似乱码" in result.error_message
+
+
+def test_pdf_converter_falls_back_when_text_contains_many_foreign_script_letters(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """验证混入大量异文字母的乱码 PDF 结果会被识别并回退。"""
+
+    pdf_file = tmp_path / "mixed-script.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4")
+    markitdown_converter = MarkItDownConverter()
+
+    def fake_extract_pdf_with_pymupdf(source_path: Path) -> str:
+        assert source_path == pdf_file
+        return (
+            "## 第 1 页\n\n"
+            "\u060b \u0abd\u0b23\u0c8d \u0d2f\u1c02\u0ca6\u0e5e "
+            "\u0693 \u0541 \u094c\u1e5b\u0db4"
+        )
+
+    def fake_markitdown_convert(source_path: Path) -> ConversionResult:
+        assert source_path == pdf_file
+        return ConversionResult(
+            content_markdown=(
+                "## 第 1 页\n\n"
+                "\u0717 \u0af2\u0b57\u11bb\u1869 \u15d1\u0e03\u052f\u19de "
+                "\u091d \u0335"
+            ),
+            conversion_type=ConversionType.STRUCTURED_TO_MD,
+            status=ConversionStatus.COMPLETED,
+            error_message=None,
+        )
+
+    monkeypatch.setattr(
+        pdf_converter_module, "_extract_pdf_with_pymupdf", fake_extract_pdf_with_pymupdf
+    )
+    monkeypatch.setattr(markitdown_converter, "convert", fake_markitdown_convert)
+
+    result = PdfConverter(
+        markitdown_converter=markitdown_converter,
+        very_large_file_threshold_mb=50,
+        large_file_index_mode=LargeFileIndexMode.METADATA,
+    ).convert(pdf_file)
+
+    assert result.status is ConversionStatus.FALLBACK
+    assert result.error_message is not None
+    assert "非拉丁/中日韩文字字符" in result.error_message
