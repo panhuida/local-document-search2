@@ -92,6 +92,7 @@ uv run python doc-cli.py index "D:\documents\历史" --dry-run
 
 ```powershell
 uv run python doc-cli.py search "历史"
+uv run python doc-cli.py search "\"历史 长河\""
 ```
 
 ### 6. 启动 Web 服务
@@ -156,6 +157,7 @@ uv run python doc-cli.py db migrate-to-postgres
 uv run python doc-cli.py index "D:\docs" --dry-run
 uv run python doc-cli.py index "D:\docs" --force
 uv run python doc-cli.py search "历史"
+uv run python doc-cli.py search "\"历史 长河\""
 uv run python doc-cli.py search "历史" --mode fuzzy
 uv run python doc-cli.py errors list
 uv run python doc-cli.py errors list --include-fallback

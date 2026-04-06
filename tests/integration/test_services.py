@@ -156,6 +156,45 @@ def test_index_search_and_preview_services(
     assert "<h1" in preview_result.content_html
 
 
+def test_search_service_supports_double_quoted_phrase_queries(
+    test_environment: Path,
+) -> None:
+    """验证双引号短语查询与普通 AND 查询会产生不同的命中范围。"""
+
+    documents_dir = test_environment.parent / "phrase-search"
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    phrase_file = documents_dir / "phrase-hit.md"
+    separated_file = documents_dir / "and-hit.md"
+    phrase_file.write_text("# phrase\n", encoding="utf-8")
+    separated_file.write_text("# separated\n", encoding="utf-8")
+
+    initialize_database()
+    _insert_document_record(
+        file_path=phrase_file,
+        status="completed",
+        content_markdown="历史 长河 文明 演进",
+        error_message=None,
+    )
+    _insert_document_record(
+        file_path=separated_file,
+        status="completed",
+        content_markdown="历史 研究 文明 长河 变迁",
+        error_message=None,
+    )
+    container = build_service_container(force_reload=True)
+
+    phrase_result = container.search_service.search(SearchRequest(query='"历史 长河"', limit=10))
+    and_result = container.search_service.search(SearchRequest(query="历史 长河", limit=10))
+
+    phrase_hit_names = {item.file_name for item in phrase_result.hits}
+    and_hit_names = {item.file_name for item in and_result.hits}
+
+    assert phrase_result.total == 1
+    assert phrase_hit_names == {"phrase-hit.md"}
+    assert and_result.total >= 2
+    assert {"phrase-hit.md", "and-hit.md"}.issubset(and_hit_names)
+
+
 def test_index_service_persists_file_timestamps_as_aware_utc(
     test_environment: Path,
     copied_documents_dir: Path,

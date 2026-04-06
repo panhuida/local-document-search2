@@ -578,7 +578,10 @@ def index_documents(
 
 @app.command("search")
 def search_documents(
-    query: Annotated[str, typer.Argument(help="检索关键词，多个词使用空格分隔，默认为 AND 逻辑")],
+    query: Annotated[
+        str,
+        typer.Argument(help="检索关键词，多个词默认按 AND 匹配，双引号可用于短语查询"),
+    ],
     mode: Annotated[
         SearchMode | None,
         typer.Option(

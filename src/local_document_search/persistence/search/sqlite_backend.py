@@ -58,7 +58,7 @@ class SQLiteSearchBackend(SearchBackend):
         return SearchBackendResult(total=fts_total + like_total, hits=sliced_hits)
 
     def _split_terms(self, query: str) -> tuple[str, ...]:
-        """将查询字符串拆分为多个 AND 关键词。"""
+        """将查询字符串拆分为多个 AND 关键词或短语。"""
         return split_query_terms(query)
 
     def _build_match_query(self, terms: Sequence[str]) -> str:
