@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlsplit, urlunsplit
 
 import click
 import typer
@@ -20,10 +21,14 @@ from rich.table import Table
 from typer.main import get_command
 
 from local_document_search import bootstrap_runtime, build_service_container
+from local_document_search.config import AppConfig, DatabaseBackend, load_app_config
 from local_document_search.persistence.database import initialize_database
 from local_document_search.services import (
     CleanRequest,
     CleanResult,
+    DatabaseMigrationRequest,
+    DatabaseMigrationResult,
+    DatabaseMigrationService,
     ErrorListRequest,
     ErrorListResult,
     IndexProgressEvent,
@@ -267,6 +272,27 @@ def _render_search_table(result: SearchResult) -> None:
     console.print(table)
 
 
+def _format_database_target(config: AppConfig) -> str:
+    """按后端生成适合展示的数据库目标描述。"""
+
+    if config.database_backend is DatabaseBackend.SQLITE:
+        return str(config.sqlite_db_path)
+    database_url = config.database_url or ""
+    parts = urlsplit(database_url)
+    if parts.password is None:
+        return database_url
+
+    hostname = parts.hostname or ""
+    if parts.port is not None:
+        hostname = f"{hostname}:{parts.port}"
+
+    username = parts.username or ""
+    netloc = f"{username}:***@{hostname}" if username != "" else hostname
+    if parts.username is None and parts.hostname is None:
+        return database_url
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
 def _render_error_table(result: ErrorListResult) -> None:
     """渲染失败或回退记录表格。"""
 
@@ -286,6 +312,36 @@ def _render_error_table(result: ErrorListResult) -> None:
             item.error_message or "-",
         )
     console.print(table)
+
+
+def _render_database_migration_result(result: DatabaseMigrationResult) -> None:
+    """渲染 SQLite 到 PostgreSQL 的迁移结果。"""
+
+    console.print(
+        f"[green]已迁移 SQLite 到 PostgreSQL[/green] "
+        f"{result.source_sqlite_path} -> {result.target_database_target}"
+    )
+    console.print(
+        f"documents：源库 {result.source_documents} 条，迁移 {result.migrated_documents} 条，"
+        f"目标现有 {result.target_documents} 条。"
+    )
+    if result.include_ingest_state:
+        console.print(
+            f"ingest_state：源库 {result.source_ingest_states} 条，"
+            f"迁移 {result.migrated_ingest_states} 条，目标现有 {result.target_ingest_states} 条。"
+        )
+    else:
+        console.print("已按参数跳过 ingest_state 迁移。")
+    if result.truncated_target:
+        console.print("迁移前已清空目标 PostgreSQL 表。")
+    if result.sanitized_document_fields > 0 or result.sanitized_ingest_state_fields > 0:
+        console.print(
+            "迁移中已自动移除 PostgreSQL 不接受的 NUL 字节："
+            f"documents {result.sanitized_document_records} 条记录 / "
+            f"{result.sanitized_document_fields} 个字段，"
+            f"ingest_state {result.sanitized_ingest_state_records} 条记录 / "
+            f"{result.sanitized_ingest_state_fields} 个字段。"
+        )
 
 
 def _render_retry_table(result: RetryResult) -> None:
@@ -371,22 +427,69 @@ def db_init(
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
 ) -> None:
-    """初始化数据库结构与 FTS5 虚拟表。"""
+    """初始化数据库结构与搜索索引对象。"""
 
     del verbose
     try:
         config = bootstrap_runtime(force_reload=True)
         initialize_database(rebuild_index=True)
+        database_target = _format_database_target(config)
         result = {
             "database_backend": config.database_backend.value,
-            "sqlite_db_path": str(config.sqlite_db_path),
+            "database_target": database_target,
             "status": "initialized",
         }
         if output_format is OutputFormat.JSON:
             _emit_json(result)
             return
         if not quiet:
-            console.print(f"[green]已初始化数据库[/green] {config.sqlite_db_path}")
+            console.print(f"[green]已初始化数据库[/green] {database_target}")
+    except Exception as exc:
+        _handle_exception(exc)
+
+
+@db_app.command("migrate-to-postgres")
+def db_migrate_to_postgres(
+    sqlite_db_path: Annotated[
+        Path | None,
+        typer.Option("--sqlite-db-path", help="SQLite 源数据库路径，默认读取 SQLITE_DB_PATH。"),
+    ] = None,
+    database_url: Annotated[
+        str | None,
+        typer.Option("--database-url", help="PostgreSQL 目标连接串，默认读取 DATABASE_URL。"),
+    ] = None,
+    include_ingest_state: Annotated[
+        bool,
+        typer.Option(
+            "--include-ingest-state/--no-include-ingest-state",
+            help="是否一并迁移 ingest_state 表。",
+        ),
+    ] = True,
+    truncate_target: Annotated[
+        bool,
+        typer.Option("--truncate-target", help="迁移前清空目标 PostgreSQL 表。"),
+    ] = False,
+    output_format: Annotated[OutputFormat, typer.Option("--format")] = OutputFormat.TABLE,
+) -> None:
+    """将 SQLite 中的业务数据迁移到 PostgreSQL。"""
+
+    try:
+        config = load_app_config(force_reload=True)
+        source_sqlite_path = sqlite_db_path or config.sqlite_db_path
+        target_database_url = database_url or config.database_url or ""
+        service = DatabaseMigrationService()
+        result = service.migrate_sqlite_to_postgresql(
+            DatabaseMigrationRequest(
+                source_sqlite_path=source_sqlite_path,
+                target_database_url=target_database_url,
+                include_ingest_state=include_ingest_state,
+                truncate_target=truncate_target,
+            )
+        )
+        if output_format is OutputFormat.JSON:
+            _emit_json(result)
+            return
+        _render_database_migration_result(result)
     except Exception as exc:
         _handle_exception(exc)
 

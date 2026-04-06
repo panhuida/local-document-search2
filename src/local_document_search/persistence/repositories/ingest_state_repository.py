@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -9,7 +10,13 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from local_document_search.models import IngestState
+from local_document_search.persistence.text_sanitizer import (
+    strip_nul_bytes,
+    strip_nullable_nul_bytes,
+)
 from local_document_search.utils import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -101,23 +108,32 @@ class IngestStateRepository:
         allow_legacy_replace: bool = False,
     ) -> IngestState:
         """写回一次索引任务的最终统计结果。"""
+        sanitized_summary, sanitized_fields = self._sanitize_summary(summary)
+        if sanitized_fields > 0:
+            logger.warning(
+                "索引状态记录包含 NUL 字节，写库前已清洗：%s，受影响字段数：%s",
+                sanitized_summary.scope_key,
+                sanitized_fields,
+            )
         if allow_legacy_replace:
-            return self._finish_run_without_loading(summary)
+            return self._finish_run_without_loading(sanitized_summary)
 
-        state = self.get_by_source_and_scope(summary.source, summary.scope_key)
+        state = self.get_by_source_and_scope(sanitized_summary.source, sanitized_summary.scope_key)
         if state is None:
-            state = IngestState(source=summary.source, scope_key=summary.scope_key)
+            state = IngestState(
+                source=sanitized_summary.source, scope_key=sanitized_summary.scope_key
+            )
             self._session.add(state)
 
-        state.last_started_at = summary.started_at
-        state.last_ended_at = summary.ended_at
-        state.last_status = summary.last_status
-        state.last_error_message = summary.last_error_message
-        state.cursor_updated_at = summary.cursor_updated_at
-        state.total_files = summary.total_files
-        state.processed = summary.processed
-        state.skipped = summary.skipped
-        state.errors = summary.errors
+        state.last_started_at = sanitized_summary.started_at
+        state.last_ended_at = sanitized_summary.ended_at
+        state.last_status = sanitized_summary.last_status
+        state.last_error_message = sanitized_summary.last_error_message
+        state.cursor_updated_at = sanitized_summary.cursor_updated_at
+        state.total_files = sanitized_summary.total_files
+        state.processed = sanitized_summary.processed
+        state.skipped = sanitized_summary.skipped
+        state.errors = sanitized_summary.errors
         self._session.flush()
         return state
 
@@ -191,3 +207,32 @@ class IngestStateRepository:
         if repaired_state is None:
             raise RuntimeError(f"写回索引状态后无法重新读取：{summary.scope_key}")
         return repaired_state
+
+    def _sanitize_summary(self, summary: IngestStateSummary) -> tuple[IngestStateSummary, int]:
+        """清洗待写入索引状态中的非法文本字符。"""
+
+        source, source_changed = strip_nul_bytes(summary.source)
+        scope_key, scope_key_changed = strip_nul_bytes(summary.scope_key)
+        last_status, last_status_changed = strip_nul_bytes(summary.last_status)
+        last_error_message, last_error_message_changed = strip_nullable_nul_bytes(
+            summary.last_error_message
+        )
+        sanitized_fields = sum(
+            (source_changed, scope_key_changed, last_status_changed, last_error_message_changed)
+        )
+        return (
+            IngestStateSummary(
+                source=source,
+                scope_key=scope_key,
+                started_at=summary.started_at,
+                ended_at=summary.ended_at,
+                last_status=last_status,
+                last_error_message=last_error_message,
+                cursor_updated_at=summary.cursor_updated_at,
+                total_files=summary.total_files,
+                processed=summary.processed,
+                skipped=summary.skipped,
+                errors=summary.errors,
+            ),
+            sanitized_fields,
+        )

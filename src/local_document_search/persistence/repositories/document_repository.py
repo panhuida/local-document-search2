@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -10,7 +11,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from local_document_search.models import Document
+from local_document_search.persistence.text_sanitizer import (
+    strip_nul_bytes,
+    strip_nullable_nul_bytes,
+)
 from local_document_search.utils import utc_now
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -113,25 +120,32 @@ class DocumentRepository:
         allow_legacy_replace: bool = False,
     ) -> Document:
         """按文件路径执行插入或更新。"""
+        sanitized_payload, sanitized_fields = self._sanitize_payload(payload)
+        if sanitized_fields > 0:
+            logger.warning(
+                "文档记录包含 NUL 字节，写库前已清洗：%s，受影响字段数：%s",
+                sanitized_payload.file_path,
+                sanitized_fields,
+            )
         if allow_legacy_replace:
-            return self._upsert_without_loading(payload)
+            return self._upsert_without_loading(sanitized_payload)
 
-        document = self.get_by_path(payload.file_path)
+        document = self.get_by_path(sanitized_payload.file_path)
         if document is None:
-            document = Document(file_path=payload.file_path)
+            document = Document(file_path=sanitized_payload.file_path)
             self._session.add(document)
 
-        document.file_name = payload.file_name
-        document.file_type = payload.file_type
-        document.file_size = payload.file_size
-        document.file_created_at = payload.file_created_at
-        document.file_modified_time = payload.file_modified_time
-        document.content_markdown = payload.content_markdown
-        document.conversion_type = payload.conversion_type
-        document.status = payload.status
-        document.error_message = payload.error_message
-        document.source = payload.source
-        document.source_url = payload.source_url
+        document.file_name = sanitized_payload.file_name
+        document.file_type = sanitized_payload.file_type
+        document.file_size = sanitized_payload.file_size
+        document.file_created_at = sanitized_payload.file_created_at
+        document.file_modified_time = sanitized_payload.file_modified_time
+        document.content_markdown = sanitized_payload.content_markdown
+        document.conversion_type = sanitized_payload.conversion_type
+        document.status = sanitized_payload.status
+        document.error_message = sanitized_payload.error_message
+        document.source = sanitized_payload.source
+        document.source_url = sanitized_payload.source_url
 
         self._session.flush()
         return document
@@ -171,3 +185,47 @@ class DocumentRepository:
         if repaired_document is None:
             raise RuntimeError(f"按路径更新文档后无法重新读取：{payload.file_path}")
         return repaired_document
+
+    def _sanitize_payload(self, payload: DocumentUpsertInput) -> tuple[DocumentUpsertInput, int]:
+        """清洗待写入文档中的非法文本字符。"""
+
+        file_name, file_name_changed = strip_nul_bytes(payload.file_name)
+        file_type, file_type_changed = strip_nullable_nul_bytes(payload.file_type)
+        file_path, file_path_changed = strip_nul_bytes(payload.file_path)
+        content_markdown, content_markdown_changed = strip_nullable_nul_bytes(
+            payload.content_markdown
+        )
+        status, status_changed = strip_nul_bytes(payload.status)
+        error_message, error_message_changed = strip_nullable_nul_bytes(payload.error_message)
+        source, source_changed = strip_nullable_nul_bytes(payload.source)
+        source_url, source_url_changed = strip_nullable_nul_bytes(payload.source_url)
+
+        sanitized_fields = sum(
+            (
+                file_name_changed,
+                file_type_changed,
+                file_path_changed,
+                content_markdown_changed,
+                status_changed,
+                error_message_changed,
+                source_changed,
+                source_url_changed,
+            )
+        )
+        return (
+            DocumentUpsertInput(
+                file_name=file_name,
+                file_type=file_type,
+                file_size=payload.file_size,
+                file_created_at=payload.file_created_at,
+                file_modified_time=payload.file_modified_time,
+                file_path=file_path,
+                content_markdown=content_markdown,
+                conversion_type=payload.conversion_type,
+                status=status,
+                error_message=error_message,
+                source=source,
+                source_url=source_url,
+            ),
+            sanitized_fields,
+        )

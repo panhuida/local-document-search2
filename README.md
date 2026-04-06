@@ -41,14 +41,24 @@ Copy-Item .env.example .env
 最少确认以下配置：
 
 - `DATABASE_BACKEND`
-- `SQLITE_DB_PATH`
+- `SQLITE_DB_PATH` 或 `DATABASE_URL`
 - `SEARCH_DIRS`
+
+PostgreSQL 建议显式使用 `psycopg` 驱动前缀：
+
+```env
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
+```
 
 ### 3. 初始化数据库
 
 ```powershell
 uv run python doc-cli.py db init
 ```
+
+如果你要把已有 SQLite 数据迁移到 PostgreSQL，请继续阅读：
+
+- `docs/engineering/SQLite_到_PostgreSQL_迁移指南.md`
 
 ### 4. 索引一个目录
 
@@ -103,7 +113,8 @@ uv run python run.py
 
 | 命令 | 作用 | 关键参数 | `dry-run` | 当前状态 |
 | --- | --- | --- | --- | --- |
-| `db init` | 初始化数据库、建表、建搜索对象、重建搜索索引 | `--format` `--verbose` `--quiet` | 不支持 | 已完成 |
+| `db init` | 初始化数据库、建表、建搜索索引对象 | `--format` `--verbose` `--quiet` | 不支持 | 已完成 |
+| `db migrate-to-postgres` | 把 SQLite 业务数据迁移到 PostgreSQL | `--sqlite-db-path` `--database-url` `--include-ingest-state` `--truncate-target` `--format` | 不支持 | 已完成 |
 | `index` | 索引一个或多个目录 | `--recursive` `--since` `--type` `--force` `--dry-run` `--format` `--verbose` `--quiet` | 支持 | 已完成 |
 | `search` | 检索已索引文档 | `--limit` `--offset` `--format` | 不需要，命令本身只读 | 已完成 |
 | `errors list` | 查看失败记录，必要时可一并包含回退记录 | `--name` `--updated-after` `--updated-before` `--include-fallback` `--format` | 不需要，命令本身只读 | 已完成 |
@@ -113,7 +124,8 @@ uv run python run.py
 
 补充说明：
 
-- 当前 CLI 主路径以 SQLite 为准，已具备完整可用性
+- 当前 CLI 已支持 SQLite 与 PostgreSQL 两种数据库后端
+- 如需从 SQLite 切换到 PostgreSQL，可使用 `db migrate-to-postgres`
 - `index --dry-run` 只预览扫描结果，不转换文件、不写库、不更新索引状态
 - `errors retry --dry-run` / `retry --dry-run` 只预览命中的失败或回退记录，不执行真实重试
 - 所有命令路径都支持 `--help-plain`，输出适合 AI Agent 和脚本读取的纯文本帮助
@@ -123,6 +135,7 @@ uv run python run.py
 
 ```powershell
 uv run python doc-cli.py db init
+uv run python doc-cli.py db migrate-to-postgres
 uv run python doc-cli.py index "D:\docs" --dry-run
 uv run python doc-cli.py index "D:\docs" --force
 uv run python doc-cli.py search "历史"

@@ -69,13 +69,28 @@ _session_factory: sessionmaker[Session] | None = None
 _active_database_url: str | None = None
 
 
+def _normalize_postgresql_database_url(database_url: str) -> str:
+    """把未显式声明驱动的 PostgreSQL URL 归一化到 psycopg。"""
+
+    normalized = database_url.strip()
+    if normalized.startswith("postgresql+"):
+        return normalized
+    if normalized.startswith("postgresql://"):
+        return normalized.replace("postgresql://", "postgresql+psycopg://", 1)
+    if normalized.startswith("postgres://"):
+        return normalized.replace("postgres://", "postgresql+psycopg://", 1)
+    return normalized
+
+
 def _resolve_database_url(config: AppConfig) -> str:
     """根据配置解析当前应使用的数据库连接串。"""
     if config.database_backend is DatabaseBackend.SQLITE:
         return f"sqlite:///{config.sqlite_db_path.as_posix()}"
-    if config.database_backend is DatabaseBackend.POSTGRESQL and config.database_url:
-        return config.database_url
-    raise UnsupportedBackendError("当前版本仅支持 SQLite，PostgreSQL 留待后续版本实现。")
+    if config.database_backend is DatabaseBackend.POSTGRESQL:
+        if config.database_url and config.database_url.strip() != "":
+            return _normalize_postgresql_database_url(config.database_url)
+        raise UnsupportedBackendError("使用 PostgreSQL 时必须配置 DATABASE_URL。")
+    raise UnsupportedBackendError(f"不支持的数据库后端：{config.database_backend.value}")
 
 
 def configure_database(config: AppConfig) -> None:
@@ -96,7 +111,12 @@ def configure_database(config: AppConfig) -> None:
         connect_args["timeout"] = 30
         Path(config.sqlite_db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    _engine = create_engine(database_url, future=True, connect_args=connect_args)
+    _engine = create_engine(
+        database_url,
+        future=True,
+        connect_args=connect_args,
+        pool_pre_ping=not database_url.startswith("sqlite:///"),
+    )
     if database_url.startswith("sqlite:///"):
         _configure_sqlite_pragmas(_engine)
     _session_factory = sessionmaker(bind=_engine, autoflush=False, autocommit=False, future=True)
@@ -133,40 +153,57 @@ def session_scope() -> Iterator[Session]:
 
 def ensure_database_schema() -> None:
     """创建 ORM 表结构。"""
-    engine = get_engine()
-
     try:
-        import local_document_search.models  # noqa: F401
-
-        Base.metadata.create_all(bind=engine)
+        ensure_database_schema_for_engine(get_engine())
     except Exception as exc:
         logger.exception("创建数据库表结构失败")
         raise DatabaseInitializationError("创建数据库表结构失败") from exc
 
 
+def ensure_database_schema_for_engine(engine: Engine) -> None:
+    """在指定 Engine 上创建 ORM 表结构。"""
+
+    import local_document_search.models  # noqa: F401
+
+    Base.metadata.create_all(bind=engine)
+
+
 def ensure_search_objects() -> bool:
     """确保搜索虚拟表与触发器存在，返回是否新建了搜索对象。"""
-    engine = get_engine()
-
     try:
-        if engine.dialect.name == "sqlite":
-            return _ensure_sqlite_search_objects(engine)
-        return False
+        return ensure_search_objects_for_engine(get_engine())
     except Exception as exc:
         logger.exception("创建搜索对象失败")
         raise DatabaseInitializationError("创建搜索对象失败") from exc
 
 
+def ensure_search_objects_for_engine(engine: Engine) -> bool:
+    """在指定 Engine 上创建搜索对象。"""
+
+    if engine.dialect.name == "sqlite":
+        return _ensure_sqlite_search_objects(engine)
+    if engine.dialect.name == "postgresql":
+        return _ensure_postgresql_search_objects(engine)
+    return False
+
+
 def rebuild_search_index() -> None:
     """重建搜索索引内容。"""
-    engine = get_engine()
-
     try:
-        if engine.dialect.name == "sqlite":
-            _rebuild_sqlite_search_index(engine)
+        rebuild_search_index_for_engine(get_engine())
     except Exception as exc:
         logger.exception("重建搜索索引失败")
         raise DatabaseInitializationError("重建搜索索引失败") from exc
+
+
+def rebuild_search_index_for_engine(engine: Engine) -> None:
+    """在指定 Engine 上重建搜索索引内容。"""
+
+    if engine.dialect.name == "sqlite":
+        _rebuild_sqlite_search_index(engine)
+        return
+    if engine.dialect.name == "postgresql":
+        logger.info("PostgreSQL trigram 索引由数据库自动维护，跳过全量重建。")
 
 
 def initialize_database(*, rebuild_index: bool = True) -> None:
@@ -209,6 +246,43 @@ def _sqlite_object_exists(connection: Connection, object_type: str, name: str) -
     return result is not None
 
 
+def _postgresql_extension_exists(connection: Connection, name: str) -> bool:
+    """检查 PostgreSQL 扩展是否已存在。"""
+
+    result = connection.execute(
+        text(
+            """
+            SELECT 1
+            FROM pg_extension
+            WHERE extname = :name
+            LIMIT 1
+            """
+        ),
+        {"name": name},
+    ).scalar_one_or_none()
+    return result is not None
+
+
+def _postgresql_index_exists(connection: Connection, name: str) -> bool:
+    """检查当前 schema 下的 PostgreSQL 索引是否已存在。"""
+
+    result = connection.execute(
+        text(
+            """
+            SELECT 1
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'i'
+              AND c.relname = :name
+              AND n.nspname = current_schema()
+            LIMIT 1
+            """
+        ),
+        {"name": name},
+    ).scalar_one_or_none()
+    return result is not None
+
+
 def _ensure_sqlite_search_objects(engine: Engine) -> bool:
     """创建 SQLite FTS5 虚拟表及同步触发器。"""
     statements = [
@@ -245,6 +319,36 @@ def _ensure_sqlite_search_objects(engine: Engine) -> bool:
         for statement in statements:
             connection.execute(text(statement))
     return not fts_table_exists
+
+
+def _ensure_postgresql_search_objects(engine: Engine) -> bool:
+    """创建 PostgreSQL pg_trgm 扩展与 trigram 索引。"""
+
+    file_name_index = "idx_documents_file_name_trgm"
+    content_index = "idx_documents_content_markdown_trgm"
+    statements = [
+        "CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+        f"""
+        CREATE INDEX IF NOT EXISTS {file_name_index}
+        ON documents USING gin (file_name gin_trgm_ops)
+        WHERE status IN ('completed', 'fallback');
+        """,
+        f"""
+        CREATE INDEX IF NOT EXISTS {content_index}
+        ON documents USING gin ((COALESCE(content_markdown, '')) gin_trgm_ops)
+        WHERE status IN ('completed', 'fallback');
+        """,
+    ]
+
+    with engine.begin() as connection:
+        search_objects_exist = (
+            _postgresql_extension_exists(connection, "pg_trgm")
+            and _postgresql_index_exists(connection, file_name_index)
+            and _postgresql_index_exists(connection, content_index)
+        )
+        for statement in statements:
+            connection.execute(text(statement))
+    return not search_objects_exist
 
 
 def _rebuild_sqlite_search_index(engine: Engine) -> None:

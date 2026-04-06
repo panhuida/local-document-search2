@@ -194,6 +194,7 @@ def load_app_config(force_reload: bool = False) -> AppConfig:
 def ensure_runtime_directories(config: AppConfig) -> None:
     """确保数据库、日志和数据目录存在。"""
 
-    config.sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
+    if config.database_backend is DatabaseBackend.SQLITE:
+        config.sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
     (config.project_root / "logs").mkdir(parents=True, exist_ok=True)
     (config.project_root / "data").mkdir(parents=True, exist_ok=True)

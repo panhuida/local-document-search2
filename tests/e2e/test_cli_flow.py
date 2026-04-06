@@ -8,12 +8,15 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
+import local_document_search.cli as cli_module
 from local_document_search.cli import app
 from local_document_search.converters.base import ConversionType
 from local_document_search.persistence.database import get_session_factory
 from local_document_search.persistence.repositories import DocumentRepository, DocumentUpsertInput
+from local_document_search.services import DatabaseMigrationRequest, DatabaseMigrationResult
 
 runner = CliRunner()
 
@@ -154,6 +157,58 @@ def test_cli_errors_list_can_include_fallback_records(
     assert include_payload["total"] == 1
     assert include_payload["include_fallback"] is True
     assert include_payload["items"][0]["status"] == "fallback"
+
+
+def test_cli_db_migrate_to_postgres_uses_config_defaults(
+    test_environment: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证迁移命令默认读取配置中的 SQLite 路径和 PostgreSQL 连接串。"""
+
+    captured_requests: list[DatabaseMigrationRequest] = []
+    del test_environment
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://tester:secret@localhost:5432/local_document_search",
+    )
+
+    def fake_migrate(
+        self: object,
+        request: DatabaseMigrationRequest,
+    ) -> DatabaseMigrationResult:
+        captured_requests.append(request)
+        return DatabaseMigrationResult(
+            source_sqlite_path=Path("D:/tmp/source.db"),
+            target_database_target="postgresql://tester:***@localhost:5432/local_document_search",
+            source_documents=2,
+            source_ingest_states=1,
+            migrated_documents=2,
+            migrated_ingest_states=1,
+            target_documents=2,
+            target_ingest_states=1,
+            include_ingest_state=True,
+            truncated_target=False,
+        )
+
+    monkeypatch.setattr(
+        cli_module.DatabaseMigrationService,
+        "migrate_sqlite_to_postgresql",
+        fake_migrate,
+    )
+
+    result = runner.invoke(app, ["db", "migrate-to-postgres", "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "migrated"
+    assert payload["target_database_target"] == (
+        "postgresql://tester:***@localhost:5432/local_document_search"
+    )
+    assert len(captured_requests) == 1
+    assert captured_requests[0].target_database_url == (
+        "postgresql://tester:secret@localhost:5432/local_document_search"
+    )
+    assert captured_requests[0].include_ingest_state is True
 
 
 def test_doc_cli_help_plain_outputs_machine_friendly_text(test_environment: Path) -> None:

@@ -14,6 +14,7 @@ dependencies = [
   "Typer>=0.16.0,<1.0.0",
   "rich>=14.0.0,<15.0.0",
   "python-dotenv>=1.1.0,<2.0.0",
+  "psycopg[binary]>=3.2.9,<4.0.0",
   "markdown-it-py>=3.0.0,<4.0.0",
   "markitdown[pdf,pptx,docx,xlsx,xls]>=0.1.1,<1.0.0",
   "pywin32>=308; platform_system == 'Windows'",

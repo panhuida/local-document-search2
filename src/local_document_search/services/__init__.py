@@ -7,6 +7,11 @@ from local_document_search.services.clean_service import (
     DeleteSelectedOrphansRequest,
     DeleteSelectedOrphansResult,
 )
+from local_document_search.services.database_migration_service import (
+    DatabaseMigrationRequest,
+    DatabaseMigrationResult,
+    DatabaseMigrationService,
+)
 from local_document_search.services.document_service import (
     DocumentPreviewRequest,
     DocumentPreviewResult,
@@ -52,6 +57,9 @@ __all__ = [
     "CleanRequest",
     "CleanResult",
     "CleanService",
+    "DatabaseMigrationRequest",
+    "DatabaseMigrationResult",
+    "DatabaseMigrationService",
     "DeleteSelectedOrphansRequest",
     "DeleteSelectedOrphansResult",
     "DocumentPreviewRequest",

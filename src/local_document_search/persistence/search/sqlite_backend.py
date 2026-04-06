@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -18,7 +17,11 @@ from local_document_search.persistence.search.base import (
     SearchBackendRequest,
     SearchBackendResult,
 )
-from local_document_search.utils import parse_storage_datetime_to_aware_utc
+from local_document_search.persistence.search.common import (
+    coerce_search_datetime,
+    make_snippet,
+    split_query_terms,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,7 @@ class SQLiteSearchBackend(SearchBackend):
 
     def _split_terms(self, query: str) -> tuple[str, ...]:
         """将查询字符串拆分为多个 AND 关键词。"""
-        return tuple(term for term in re.split(r"\s+", query.strip()) if term)
+        return split_query_terms(query)
 
     def _build_match_query(self, terms: Sequence[str]) -> str:
         """构造 FTS5 MATCH 所需的 AND 查询表达式。"""
@@ -235,20 +238,8 @@ class SQLiteSearchBackend(SearchBackend):
 
     def _make_snippet(self, content: str, window: int = 160) -> str:
         """在缺少高亮片段时生成简短预览文本。"""
-        normalized = re.sub(r"\s+", " ", content).strip()
-        if len(normalized) <= window:
-            return normalized
-        return f"{normalized[:window].rstrip()} ..."
+        return make_snippet(content, window=window)
 
     def _coerce_datetime(self, value: object) -> datetime | None:
         """兼容 SQLite 原生字符串时间，统一转换为 aware UTC datetime。"""
-        if value is None:
-            return None
-        try:
-            return parse_storage_datetime_to_aware_utc(
-                value if isinstance(value, datetime | str) else None
-            )
-        except ValueError:
-            if isinstance(value, str):
-                logger.warning("无法解析搜索结果中的时间字段：%s", value)
-        return None
+        return coerce_search_datetime(value, logger=logger)

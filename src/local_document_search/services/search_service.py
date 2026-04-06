@@ -92,5 +92,5 @@ class SearchService:
         if backend is DatabaseBackend.SQLITE:
             return SQLiteSearchBackend(session_factory)
         if backend is DatabaseBackend.POSTGRESQL:
-            return PostgreSQLSearchBackend()
+            return PostgreSQLSearchBackend(session_factory)
         raise UnsupportedBackendError(f"未知数据库后端：{backend}")
