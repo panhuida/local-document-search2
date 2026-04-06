@@ -19,7 +19,7 @@ from local_document_search import (
     build_service_container,
     create_app,
 )
-from local_document_search.config import load_app_config
+from local_document_search.config import DatabaseBackend, SearchMode, load_app_config
 from local_document_search.converters import ConverterFactory
 from local_document_search.converters.base import ConversionResult, ConversionStatus, ConversionType
 from local_document_search.exceptions import IndexCancelledError
@@ -41,7 +41,9 @@ from local_document_search.services import (
     RetryItemResult,
     RetryRequest,
     RetryResult,
+    SearchHit,
     SearchRequest,
+    SearchResult,
 )
 
 
@@ -1552,6 +1554,72 @@ def test_search_results_page_renders_google_like_result_shell(
     assert "本地索引" not in page
     assert "文档预览" not in page
     assert "打开应用菜单" not in page
+    assert "工具" not in page
+    assert "匹配方式" not in page
+
+
+def test_search_results_page_supports_switching_postgresql_search_mode(
+    test_environment: Path,
+) -> None:
+    """验证 PostgreSQL 结果页会展示 全部/工具，并把模式透传给搜索服务。"""
+
+    del test_environment
+    base_container = build_service_container(force_reload=True)
+    fake_config = replace(
+        base_container.config,
+        database_backend=DatabaseBackend.POSTGRESQL,
+        postgresql_default_search_mode=SearchMode.FULLTEXT,
+    )
+    captured_requests: list[SearchRequest] = []
+
+    class FakeSearchService:
+        """记录搜索请求并返回固定结果，供模板渲染验证。"""
+
+        def search(self, request: SearchRequest) -> SearchResult:
+            captured_requests.append(request)
+            return SearchResult(
+                query=request.query,
+                mode=request.mode or SearchMode.FULLTEXT,
+                total=12,
+                limit=request.limit,
+                offset=request.offset,
+                hits=(
+                    SearchHit(
+                        document_id=1,
+                        file_name="history.md",
+                        file_path="D:/docs/history.md",
+                        file_type="md",
+                        snippet="关于历史的测试内容",
+                        score=1.0,
+                        modified_at=None,
+                    ),
+                ),
+            )
+
+    app = create_app(services=base_container)
+    app.config["TESTING"] = True
+    app.extensions["services"] = replace(
+        base_container,
+        config=fake_config,
+        search_service=FakeSearchService(),
+    )
+
+    with app.test_client() as client:
+        response = client.get("/search?q=历史&mode=fuzzy")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "全部" in page
+    assert "工具" in page
+    assert "所有结果" not in page
+    assert "匹配方式" in page
+    assert "全文检索" in page
+    assert "模糊匹配" in page
+    assert "当前模式：" not in page
+    assert 'name="mode" value="fuzzy"' in page
+    assert "mode=fuzzy" in page
+    assert len(captured_requests) == 1
+    assert captured_requests[0].mode is SearchMode.FUZZY
 
 
 def test_preview_page_renders_markdown_preview_and_source_tabs(

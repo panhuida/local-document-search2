@@ -17,8 +17,6 @@ from sqlalchemy.types import TypeDecorator
 from local_document_search.config import (
     AppConfig,
     DatabaseBackend,
-    PostgreSQLSearchBackendType,
-    load_app_config,
 )
 from local_document_search.exceptions import DatabaseInitializationError, UnsupportedBackendError
 from local_document_search.utils import (
@@ -72,7 +70,6 @@ class UTCDateTime(TypeDecorator[object]):
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
 _active_database_url: str | None = None
-_active_postgresql_search_backend: PostgreSQLSearchBackendType | None = None
 
 
 def _normalize_postgresql_database_url(database_url: str) -> str:
@@ -101,11 +98,10 @@ def _resolve_database_url(config: AppConfig) -> str:
 
 def configure_database(config: AppConfig) -> None:
     """按当前配置初始化 engine 与会话工厂。"""
-    global _active_database_url, _active_postgresql_search_backend, _engine, _session_factory
+    global _active_database_url, _engine, _session_factory
 
     database_url = _resolve_database_url(config)
     if _engine is not None and _active_database_url == database_url:
-        _active_postgresql_search_backend = config.postgresql_search_backend
         return
 
     if _engine is not None:
@@ -128,7 +124,6 @@ def configure_database(config: AppConfig) -> None:
         _configure_sqlite_pragmas(_engine)
     _session_factory = sessionmaker(bind=_engine, autoflush=False, autocommit=False, future=True)
     _active_database_url = database_url
-    _active_postgresql_search_backend = config.postgresql_search_backend
 
 
 def get_engine() -> Engine:
@@ -179,25 +174,19 @@ def ensure_database_schema_for_engine(engine: Engine) -> None:
 def ensure_search_objects() -> bool:
     """确保搜索虚拟表与触发器存在，返回是否新建了搜索对象。"""
     try:
-        return ensure_search_objects_for_engine(
-            get_engine(),
-            _active_postgresql_search_backend or load_app_config().postgresql_search_backend,
-        )
+        return ensure_search_objects_for_engine(get_engine())
     except Exception as exc:
         logger.exception("创建搜索对象失败")
         raise DatabaseInitializationError("创建搜索对象失败") from exc
 
 
-def ensure_search_objects_for_engine(
-    engine: Engine,
-    postgresql_search_backend: PostgreSQLSearchBackendType = (PostgreSQLSearchBackendType.PG_TRGM),
-) -> bool:
+def ensure_search_objects_for_engine(engine: Engine) -> bool:
     """在指定 Engine 上创建搜索对象。"""
 
     if engine.dialect.name == "sqlite":
         return _ensure_sqlite_search_objects(engine)
     if engine.dialect.name == "postgresql":
-        return _ensure_postgresql_search_objects(engine, postgresql_search_backend)
+        return _ensure_postgresql_search_objects(engine)
     return False
 
 
@@ -335,15 +324,12 @@ def _ensure_sqlite_search_objects(engine: Engine) -> bool:
     return not fts_table_exists
 
 
-def _ensure_postgresql_search_objects(
-    engine: Engine,
-    postgresql_search_backend: PostgreSQLSearchBackendType,
-) -> bool:
-    """按配置创建 PostgreSQL 搜索扩展与索引。"""
+def _ensure_postgresql_search_objects(engine: Engine) -> bool:
+    """创建 PostgreSQL 所需的全部搜索扩展与索引。"""
 
-    if postgresql_search_backend is PostgreSQLSearchBackendType.PGROONGA:
-        return _ensure_postgresql_pgroonga_search_objects(engine)
-    return _ensure_postgresql_pg_trgm_search_objects(engine)
+    created_pg_trgm = _ensure_postgresql_pg_trgm_search_objects(engine)
+    created_pgroonga = _ensure_postgresql_pgroonga_search_objects(engine)
+    return created_pg_trgm or created_pgroonga
 
 
 def _ensure_postgresql_pg_trgm_search_objects(engine: Engine) -> bool:

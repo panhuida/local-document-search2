@@ -12,7 +12,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from local_document_search.config import PostgreSQLSearchBackendType
 from local_document_search.exceptions import ConfigurationError, DatabaseInitializationError
 from local_document_search.models import Document, IngestState
 from local_document_search.persistence.database import (
@@ -34,7 +33,6 @@ class DatabaseMigrationRequest:
 
     source_sqlite_path: Path
     target_database_url: str
-    postgresql_search_backend: PostgreSQLSearchBackendType = PostgreSQLSearchBackendType.PG_TRGM
     include_ingest_state: bool = True
     truncate_target: bool = False
 
@@ -83,10 +81,7 @@ class DatabaseMigrationService:
 
         try:
             ensure_database_schema_for_engine(target_engine)
-            ensure_search_objects_for_engine(
-                target_engine,
-                normalized_request.postgresql_search_backend,
-            )
+            ensure_search_objects_for_engine(target_engine)
             result = self._copy_data(normalized_request, source_engine, target_engine)
             self._reset_postgresql_sequences(target_engine, normalized_request.include_ingest_state)
             return result
@@ -118,7 +113,6 @@ class DatabaseMigrationService:
         return DatabaseMigrationRequest(
             source_sqlite_path=source_path,
             target_database_url=_normalize_postgresql_database_url(target_database_url),
-            postgresql_search_backend=request.postgresql_search_backend,
             include_ingest_state=request.include_ingest_state,
             truncate_target=request.truncate_target,
         )

@@ -21,7 +21,7 @@ from rich.table import Table
 from typer.main import get_command
 
 from local_document_search import bootstrap_runtime, build_service_container
-from local_document_search.config import AppConfig, DatabaseBackend, load_app_config
+from local_document_search.config import AppConfig, DatabaseBackend, SearchMode, load_app_config
 from local_document_search.persistence.database import initialize_database
 from local_document_search.services import (
     CleanRequest,
@@ -255,7 +255,8 @@ def _render_index_table(result: IndexResult) -> None:
 def _render_search_table(result: SearchResult) -> None:
     """渲染检索结果表格。"""
 
-    table = Table(title=f"检索结果（共 {result.total} 条）")
+    mode_label = "全文检索" if result.mode is SearchMode.FULLTEXT else "模糊匹配"
+    table = Table(title=f"检索结果（{mode_label}，共 {result.total} 条）")
     table.add_column("ID", justify="right")
     table.add_column("文件名")
     table.add_column("类型")
@@ -436,8 +437,8 @@ def db_init(
         database_target = _format_database_target(config)
         result = {
             "database_backend": config.database_backend.value,
-            "postgresql_search_backend": (
-                config.postgresql_search_backend.value
+            "postgresql_default_search_mode": (
+                config.postgresql_default_search_mode.value
                 if config.database_backend is DatabaseBackend.POSTGRESQL
                 else None
             ),
@@ -487,7 +488,6 @@ def db_migrate_to_postgres(
             DatabaseMigrationRequest(
                 source_sqlite_path=source_sqlite_path,
                 target_database_url=target_database_url,
-                postgresql_search_backend=config.postgresql_search_backend,
                 include_ingest_state=include_ingest_state,
                 truncate_target=truncate_target,
             )
@@ -579,19 +579,26 @@ def index_documents(
 @app.command("search")
 def search_documents(
     query: Annotated[str, typer.Argument(help="检索关键词，多个词使用空格分隔，默认为 AND 逻辑")],
+    mode: Annotated[
+        SearchMode | None,
+        typer.Option(
+            "--mode",
+            help="匹配方式：fulltext=全文检索，fuzzy=模糊匹配；不传时使用当前默认模式。",
+        ),
+    ] = None,
     limit: Annotated[int, typer.Option("--limit")] = 20,
     offset: Annotated[int, typer.Option("--offset")] = 0,
     output_format: Annotated[OutputFormat, typer.Option("--format")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose")] = False,
     quiet: Annotated[bool, typer.Option("--quiet")] = False,
 ) -> None:
-    """执行全文检索。"""
+    """执行本地检索。"""
 
     del verbose, quiet
     try:
         container = build_service_container(force_reload=True)
         result = container.search_service.search(
-            SearchRequest(query=query, limit=limit, offset=offset)
+            SearchRequest(query=query, limit=limit, offset=offset, mode=mode)
         )
         if output_format is OutputFormat.JSON:
             _emit_json(result)

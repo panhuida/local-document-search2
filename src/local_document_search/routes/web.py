@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from flask.typing import ResponseReturnValue
 
 from local_document_search import ServiceContainer
+from local_document_search.config import DatabaseBackend, SearchMode
 from local_document_search.file_types.presentation import build_file_type_groups
 from local_document_search.file_types.registry import SUPPORTED_FILE_EXTENSIONS
 from local_document_search.persistence.database import initialize_database
@@ -31,6 +32,10 @@ from local_document_search.utils import parse_datetime_string_to_aware_utc
 web_blueprint = Blueprint("web", __name__)
 
 _ALL_SUPPORTED_FILE_TYPES = SUPPORTED_FILE_EXTENSIONS
+_SEARCH_MODE_OPTIONS: tuple[tuple[SearchMode, str, str], ...] = (
+    (SearchMode.FULLTEXT, "全文检索", "PGroonga"),
+    (SearchMode.FUZZY, "模糊匹配", "pg_trgm"),
+)
 
 
 def _services() -> ServiceContainer:
@@ -44,6 +49,25 @@ def _services() -> ServiceContainer:
 def _parse_datetime(raw_value: str | None) -> datetime | None:
     """解析表单或查询参数中的 ISO 时间字符串。"""
     return parse_datetime_string_to_aware_utc(raw_value)
+
+
+def _parse_search_mode(raw_value: str | None, default_mode: SearchMode) -> SearchMode:
+    """解析搜索模式，非法值自动回退到默认模式。"""
+
+    if raw_value is None or raw_value.strip() == "":
+        return default_mode
+    try:
+        return SearchMode(raw_value.strip().lower())
+    except ValueError:
+        return default_mode
+
+
+def _build_search_mode_label(mode: SearchMode) -> str:
+    """返回搜索模式的人类可读文案。"""
+
+    if mode is SearchMode.FULLTEXT:
+        return "全文检索"
+    return "模糊匹配"
 
 
 def _build_pagination_entries(current_page: int, total_pages: int) -> tuple[int | None, ...]:
@@ -225,8 +249,16 @@ def cancel_index_task(task_id: str) -> ResponseReturnValue:
 @web_blueprint.route("/search")
 def search_page() -> str:
     """搜索页面，展示分页检索结果。"""
+    services = _services()
+    supports_search_mode_switch = services.config.database_backend is DatabaseBackend.POSTGRESQL
+    default_search_mode = (
+        services.config.postgresql_default_search_mode
+        if supports_search_mode_switch
+        else SearchMode.FULLTEXT
+    )
     query = request.args.get("q", "").strip()
     page = max(int(request.args.get("page", "1")), 1)
+    search_mode = _parse_search_mode(request.args.get("mode"), default_search_mode)
     limit = 10
     offset = (page - 1) * limit
     result = None
@@ -236,8 +268,8 @@ def search_page() -> str:
 
     if query:
         started_at = perf_counter()
-        result = _services().search_service.search(
-            SearchRequest(query=query, limit=limit, offset=offset)
+        result = services.search_service.search(
+            SearchRequest(query=query, limit=limit, offset=offset, mode=search_mode)
         )
         elapsed_ms = max(1, round((perf_counter() - started_at) * 1000))
         total_pages = ceil(result.total / limit) if result.total else 0
@@ -248,6 +280,10 @@ def search_page() -> str:
         active_nav="search",
         query=query,
         query_terms=query_terms,
+        search_mode=search_mode,
+        search_mode_label=_build_search_mode_label(search_mode),
+        search_mode_options=_SEARCH_MODE_OPTIONS,
+        supports_search_mode_switch=supports_search_mode_switch,
         current_page=page,
         total_pages=total_pages,
         pagination_entries=pagination_entries,

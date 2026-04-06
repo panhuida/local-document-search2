@@ -80,7 +80,7 @@ def _create_service_container(config: AppConfig) -> ServiceContainer:
         search_service=SearchService(
             session_factory,
             config.database_backend,
-            config.postgresql_search_backend,
+            config.postgresql_default_search_mode,
         ),
         error_record_service=error_record_service,
         retry_task_service=RetryTaskService(error_record_service),

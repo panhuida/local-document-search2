@@ -1,6 +1,6 @@
 # PostgreSQL PGroonga 接入说明
 
-本文说明如何把当前项目的 PostgreSQL 搜索实现切换为 PGroonga，以改善中文全文检索性能与召回。
+本文说明如何在当前项目中启用 PostgreSQL 的 PGroonga 全文检索模式，以改善中文全文检索性能与召回。
 
 
 ## 1. 适用范围
@@ -34,14 +34,15 @@ CREATE EXTENSION IF NOT EXISTS pgroonga;
 
 ```env
 DATABASE_BACKEND=postgresql
-POSTGRESQL_SEARCH_BACKEND=pgroonga
+POSTGRESQL_DEFAULT_SEARCH_MODE=fulltext
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
 ```
 
 说明：
 
-- `POSTGRESQL_SEARCH_BACKEND=pgroonga` 表示 PostgreSQL 搜索改走 PGroonga
-- 如果保留 `pg_trgm`，则使用旧的 `ILIKE + similarity(...)` 路径
+- `POSTGRESQL_DEFAULT_SEARCH_MODE=fulltext` 表示 PostgreSQL 默认使用 PGroonga
+- `POSTGRESQL_DEFAULT_SEARCH_MODE=fuzzy` 表示 PostgreSQL 默认使用 pg_trgm
+- 当前实现会同时创建 PGroonga 与 pg_trgm 两套搜索对象，Web 和 CLI 都可以按请求切换，不需要通过修改配置重启应用来切换匹配方式
 
 
 ## 4. 初始化搜索对象
@@ -54,7 +55,9 @@ uv run python doc-cli.py db init
 
 当前实现会自动创建：
 
+- `pg_trgm` 扩展
 - `pgroonga` 扩展
+- `idx_documents_file_name_trgm`、`idx_documents_content_markdown_trgm` 模糊匹配索引
 - `idx_documents_search_pgroonga` 全文索引
 
 索引目标是：
@@ -90,8 +93,8 @@ WHERE schemaname = current_schema()
 当前项目中：
 
 - SQLite 仍然使用 `FTS5 + LIKE` 回退
-- PostgreSQL 的 `pg_trgm` 模式仍然保留，方便兼容或回滚
-- PostgreSQL 的 `pgroonga` 模式使用真正的全文索引，不再以 `ILIKE` 为主路径
+- PostgreSQL 的 `模糊匹配` 模式仍然保留，方便兼容或对比
+- PostgreSQL 的 `全文检索` 模式使用真正的全文索引，不再以 `ILIKE` 为主路径
 
 PGroonga 模式下，搜索逻辑会对：
 
@@ -103,10 +106,10 @@ PGroonga 模式下，搜索逻辑会对：
 
 ## 7. 从 pg_trgm 回滚
 
-如果你需要回滚到旧实现，只要把 `.env` 改回：
+如果你需要把默认模式改回模糊匹配，只要把 `.env` 改成：
 
 ```env
-POSTGRESQL_SEARCH_BACKEND=pg_trgm
+POSTGRESQL_DEFAULT_SEARCH_MODE=fuzzy
 ```
 
 然后重新执行：
@@ -118,7 +121,7 @@ uv run python doc-cli.py db init
 说明：
 
 - 当前实现不会自动删除已有的 PGroonga 索引
-- 回滚后应用只是不再使用 PGroonga 查询路径
+- 改回 `fuzzy` 后，应用默认走 pg_trgm 查询路径
 - 如果后续确认不再需要 PGroonga，可再手动清理相关扩展与索引
 
 

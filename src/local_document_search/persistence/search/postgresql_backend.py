@@ -218,10 +218,8 @@ class PostgreSQLPGroongaSearchBackend(_PostgreSQLSearchBackendBase):
 
         parameters: dict[str, object] = {
             "query": self._build_pgroonga_query(terms),
-            "weight_file_name": _PGROONGA_WEIGHTS[0],
-            "weight_content": _PGROONGA_WEIGHTS[1],
         }
-        weights_expression = "ARRAY[:weight_file_name, :weight_content]"
+        weights_expression = f"ARRAY[{_PGROONGA_WEIGHTS[0]}, {_PGROONGA_WEIGHTS[1]}]"
         condition_expression = (
             "pgroonga_condition("
             ":query, "

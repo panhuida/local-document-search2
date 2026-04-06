@@ -19,11 +19,11 @@ class DatabaseBackend(StrEnum):
     POSTGRESQL = "postgresql"
 
 
-class PostgreSQLSearchBackendType(StrEnum):
-    """PostgreSQL 下支持的搜索实现。"""
+class SearchMode(StrEnum):
+    """搜索请求支持的匹配模式。"""
 
-    PG_TRGM = "pg_trgm"
-    PGROONGA = "pgroonga"
+    FULLTEXT = "fulltext"
+    FUZZY = "fuzzy"
 
 
 class LargeFileIndexMode(StrEnum):
@@ -38,7 +38,7 @@ class AppConfig:
     """应用运行期配置对象。"""
 
     database_backend: DatabaseBackend
-    postgresql_search_backend: PostgreSQLSearchBackendType
+    postgresql_default_search_mode: SearchMode
     sqlite_db_path: Path
     database_url: str | None
     search_dirs: tuple[Path, ...]
@@ -91,14 +91,39 @@ def _parse_large_file_index_mode(raw_value: str | None) -> LargeFileIndexMode:
         raise ConfigurationError("LARGE_FILE_INDEX_MODE 仅支持 full 或 metadata。") from exc
 
 
-def _parse_postgresql_search_backend(raw_value: str | None) -> PostgreSQLSearchBackendType:
-    """解析 PostgreSQL 搜索实现类型。"""
+def _parse_search_mode(raw_value: str | None, *, config_name: str) -> SearchMode:
+    """解析搜索模式。"""
 
-    normalized_value = (raw_value or PostgreSQLSearchBackendType.PG_TRGM.value).strip().lower()
+    normalized_value = (raw_value or SearchMode.FULLTEXT.value).strip().lower()
     try:
-        return PostgreSQLSearchBackendType(normalized_value)
+        return SearchMode(normalized_value)
     except ValueError as exc:
-        raise ConfigurationError("POSTGRESQL_SEARCH_BACKEND 仅支持 pg_trgm 或 pgroonga。") from exc
+        raise ConfigurationError(f"{config_name} 仅支持 fulltext 或 fuzzy。") from exc
+
+
+def _parse_postgresql_default_search_mode() -> SearchMode:
+    """解析 PostgreSQL 默认搜索模式，兼容旧环境变量。"""
+
+    explicit_mode = os.getenv("POSTGRESQL_DEFAULT_SEARCH_MODE")
+    if explicit_mode is not None and explicit_mode.strip() != "":
+        return _parse_search_mode(
+            explicit_mode,
+            config_name="POSTGRESQL_DEFAULT_SEARCH_MODE",
+        )
+
+    legacy_backend = os.getenv("POSTGRESQL_SEARCH_BACKEND")
+    if legacy_backend is None or legacy_backend.strip() == "":
+        return SearchMode.FULLTEXT
+
+    normalized_legacy_backend = legacy_backend.strip().lower()
+    if normalized_legacy_backend == "pgroonga":
+        return SearchMode.FULLTEXT
+    if normalized_legacy_backend == "pg_trgm":
+        return SearchMode.FUZZY
+    raise ConfigurationError(
+        "POSTGRESQL_SEARCH_BACKEND 仅支持 pgroonga 或 pg_trgm；"
+        "建议改用 POSTGRESQL_DEFAULT_SEARCH_MODE。"
+    )
 
 
 def _parse_search_dirs(raw_value: str | None, project_root: Path) -> tuple[Path, ...]:
@@ -185,9 +210,7 @@ def load_app_config(force_reload: bool = False) -> AppConfig:
 
     _CONFIG_CACHE = AppConfig(
         database_backend=database_backend,
-        postgresql_search_backend=_parse_postgresql_search_backend(
-            os.getenv("POSTGRESQL_SEARCH_BACKEND")
-        ),
+        postgresql_default_search_mode=_parse_postgresql_default_search_mode(),
         sqlite_db_path=sqlite_db_path,
         database_url=os.getenv("DATABASE_URL"),
         search_dirs=_parse_search_dirs(os.getenv("SEARCH_DIRS"), project_root),

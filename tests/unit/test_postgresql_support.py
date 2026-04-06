@@ -14,7 +14,7 @@ from local_document_search.config import (
     AppConfig,
     DatabaseBackend,
     LargeFileIndexMode,
-    PostgreSQLSearchBackendType,
+    SearchMode,
 )
 from local_document_search.persistence import database as database_module
 from local_document_search.persistence.search.postgresql_backend import (
@@ -28,7 +28,7 @@ def _make_config(
     *,
     project_root: Path,
     database_backend: DatabaseBackend,
-    postgresql_search_backend: PostgreSQLSearchBackendType = (PostgreSQLSearchBackendType.PG_TRGM),
+    postgresql_default_search_mode: SearchMode = SearchMode.FULLTEXT,
     sqlite_db_path: Path | None = None,
     database_url: str | None = None,
 ) -> AppConfig:
@@ -36,7 +36,7 @@ def _make_config(
 
     return AppConfig(
         database_backend=database_backend,
-        postgresql_search_backend=postgresql_search_backend,
+        postgresql_default_search_mode=postgresql_default_search_mode,
         sqlite_db_path=sqlite_db_path or project_root / "sqlite" / "search.db",
         database_url=database_url,
         search_dirs=tuple(),
@@ -169,17 +169,14 @@ def test_ensure_runtime_directories_skips_sqlite_path_for_postgresql(tmp_path: P
 def test_ensure_postgresql_search_objects_creates_pg_trgm_indexes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """验证 PostgreSQL 初始化会创建 pg_trgm 扩展与 trigram 索引。"""
+    """验证 PostgreSQL 初始化会创建 pg_trgm 与 PGroonga 两套搜索对象。"""
 
     connection = _FakeConnection()
     engine = _FakeEngine(connection)
     monkeypatch.setattr(database_module, "_postgresql_extension_exists", lambda *_args: False)
     monkeypatch.setattr(database_module, "_postgresql_index_exists", lambda *_args: False)
 
-    created = database_module._ensure_postgresql_search_objects(
-        cast(Engine, engine),
-        PostgreSQLSearchBackendType.PG_TRGM,
-    )
+    created = database_module._ensure_postgresql_search_objects(cast(Engine, engine))
 
     assert created is True
     executed_sql = "\n".join(connection.statements)
@@ -187,25 +184,6 @@ def test_ensure_postgresql_search_objects_creates_pg_trgm_indexes(
     assert "idx_documents_file_name_trgm" in executed_sql
     assert "idx_documents_content_markdown_trgm" in executed_sql
     assert "gin_trgm_ops" in executed_sql
-
-
-def test_ensure_postgresql_search_objects_creates_pgroonga_index(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """验证 PostgreSQL 初始化可按配置创建 PGroonga 扩展与全文索引。"""
-
-    connection = _FakeConnection()
-    engine = _FakeEngine(connection)
-    monkeypatch.setattr(database_module, "_postgresql_extension_exists", lambda *_args: False)
-    monkeypatch.setattr(database_module, "_postgresql_index_exists", lambda *_args: False)
-
-    created = database_module._ensure_postgresql_search_objects(
-        cast(Engine, engine),
-        PostgreSQLSearchBackendType.PGROONGA,
-    )
-
-    assert created is True
-    executed_sql = "\n".join(connection.statements)
     assert "CREATE EXTENSION IF NOT EXISTS pgroonga" in executed_sql
     assert "idx_documents_search_pgroonga" in executed_sql
     assert "USING pgroonga" in executed_sql
@@ -251,12 +229,10 @@ def test_postgresql_pgroonga_backend_builds_weighted_query() -> None:
     query_sql, parameters = backend._build_pgroonga_query_sql(("历史", "文档"), count_only=False)
 
     assert "pgroonga_condition(" in query_sql
-    assert "ARRAY[:weight_file_name, :weight_content]" in query_sql
+    assert "ARRAY[5, 1]" in query_sql
     assert "pgroonga_score(tableoid, ctid) AS score" in query_sql
     assert "idx_documents_search_pgroonga" in query_sql
     assert parameters["query"] == '"历史" "文档"'
-    assert parameters["weight_file_name"] == 5
-    assert parameters["weight_content"] == 1
 
 
 def test_postgresql_pgroonga_backend_quotes_special_characters() -> None:
@@ -269,25 +245,55 @@ def test_postgresql_pgroonga_backend_quotes_special_characters() -> None:
     assert query == r'"C++\"17" "foo\\bar"'
 
 
-def test_search_service_uses_pgroonga_backend_for_postgresql_when_configured() -> None:
-    """验证 SearchService 会按配置切换到 PGroonga 后端。"""
+def test_search_service_uses_pgroonga_backend_for_fulltext_mode() -> None:
+    """验证 SearchService 在全文检索模式下会使用 PGroonga 后端。"""
 
     service = SearchService(
         sessionmaker(),
         DatabaseBackend.POSTGRESQL,
-        PostgreSQLSearchBackendType.PGROONGA,
+        SearchMode.FULLTEXT,
     )
 
-    assert isinstance(service._backend, PostgreSQLPGroongaSearchBackend)
+    assert isinstance(
+        service._select_backend(SearchMode.FULLTEXT),
+        PostgreSQLPGroongaSearchBackend,
+    )
 
 
-def test_search_service_uses_trigram_backend_for_postgresql_when_configured() -> None:
-    """验证 SearchService 会按配置保留 pg_trgm 后端。"""
+def test_search_service_uses_trigram_backend_for_fuzzy_mode() -> None:
+    """验证 SearchService 在模糊匹配模式下会使用 pg_trgm 后端。"""
 
     service = SearchService(
         sessionmaker(),
         DatabaseBackend.POSTGRESQL,
-        PostgreSQLSearchBackendType.PG_TRGM,
+        SearchMode.FULLTEXT,
     )
 
-    assert isinstance(service._backend, PostgreSQLTrigramSearchBackend)
+    assert isinstance(
+        service._select_backend(SearchMode.FUZZY),
+        PostgreSQLTrigramSearchBackend,
+    )
+
+
+def test_search_service_uses_default_mode_when_request_mode_is_missing() -> None:
+    """验证 SearchService 会回退到配置中的默认搜索模式。"""
+
+    service = SearchService(
+        sessionmaker(),
+        DatabaseBackend.POSTGRESQL,
+        SearchMode.FUZZY,
+    )
+
+    assert service._resolve_mode(None) is SearchMode.FUZZY
+
+
+def test_search_service_forces_fulltext_mode_on_sqlite() -> None:
+    """验证 SQLite 后端下不会暴露 PostgreSQL 的模糊匹配模式。"""
+
+    service = SearchService(
+        sessionmaker(),
+        DatabaseBackend.SQLITE,
+        SearchMode.FUZZY,
+    )
+
+    assert service._resolve_mode(SearchMode.FUZZY) is SearchMode.FULLTEXT

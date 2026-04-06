@@ -41,7 +41,7 @@ Copy-Item .env.example .env
 最少确认以下配置：
 
 - `DATABASE_BACKEND`
-- `POSTGRESQL_SEARCH_BACKEND`
+- `POSTGRESQL_DEFAULT_SEARCH_MODE`
 - `SQLITE_DB_PATH` 或 `DATABASE_URL`
 - `SEARCH_DIRS`
 
@@ -51,13 +51,19 @@ PostgreSQL 建议显式使用 `psycopg` 驱动前缀：
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
 ```
 
-如果你希望 PostgreSQL 使用更适合中文场景的全文检索，请改成：
+如果你希望 PostgreSQL 默认使用更适合中文场景的全文检索，请改成：
 
 ```env
 DATABASE_BACKEND=postgresql
-POSTGRESQL_SEARCH_BACKEND=pgroonga
+POSTGRESQL_DEFAULT_SEARCH_MODE=fulltext
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
 ```
+
+说明：
+
+- `fulltext` 对应 PGroonga
+- `fuzzy` 对应 pg_trgm
+- 当前 PostgreSQL 初始化会同时准备两套搜索对象，CLI 与 Web 可按请求切换，不再需要修改配置后重启应用才能切换匹配方式
 
 ### 3. 初始化数据库
 
@@ -126,7 +132,7 @@ uv run python run.py
 | `db init` | 初始化数据库、建表、建搜索索引对象 | `--format` `--verbose` `--quiet` | 不支持 | 已完成 |
 | `db migrate-to-postgres` | 把 SQLite 业务数据迁移到 PostgreSQL | `--sqlite-db-path` `--database-url` `--include-ingest-state` `--truncate-target` `--format` | 不支持 | 已完成 |
 | `index` | 索引一个或多个目录 | `--recursive` `--since` `--type` `--force` `--dry-run` `--format` `--verbose` `--quiet` | 支持 | 已完成 |
-| `search` | 检索已索引文档 | `--limit` `--offset` `--format` | 不需要，命令本身只读 | 已完成 |
+| `search` | 检索已索引文档 | `--mode` `--limit` `--offset` `--format` | 不需要，命令本身只读 | 已完成 |
 | `errors list` | 查看失败记录，必要时可一并包含回退记录 | `--name` `--updated-after` `--updated-before` `--include-fallback` `--format` | 不需要，命令本身只读 | 已完成 |
 | `errors retry` | 重试失败记录，必要时可一并处理回退记录 | `--id` `--path` `--all-failed` `--include-fallback` `--dry-run` `--format` | 支持 | 已完成，推荐入口 |
 | `retry` | `errors retry` 的顶层兼容别名 | `document_id` `--all-failed` `--include-fallback` `--dry-run` `--format` | 支持 | 已完成，兼容别名 |
@@ -135,7 +141,7 @@ uv run python run.py
 补充说明：
 
 - 当前 CLI 已支持 SQLite 与 PostgreSQL 两种数据库后端
-- PostgreSQL 目前支持 `pg_trgm` 与 `pgroonga` 两种搜索实现，中文全文检索建议优先使用 `pgroonga`
+- PostgreSQL 目前支持 `全文检索（PGroonga）` 与 `模糊匹配（pg_trgm）` 两种模式，中文全文检索建议优先使用 PGroonga
 - 如需从 SQLite 切换到 PostgreSQL，可使用 `db migrate-to-postgres`
 - `index --dry-run` 只预览扫描结果，不转换文件、不写库、不更新索引状态
 - `errors retry --dry-run` / `retry --dry-run` 只预览命中的失败或回退记录，不执行真实重试
@@ -150,6 +156,7 @@ uv run python doc-cli.py db migrate-to-postgres
 uv run python doc-cli.py index "D:\docs" --dry-run
 uv run python doc-cli.py index "D:\docs" --force
 uv run python doc-cli.py search "历史"
+uv run python doc-cli.py search "历史" --mode fuzzy
 uv run python doc-cli.py errors list
 uv run python doc-cli.py errors list --include-fallback
 uv run python doc-cli.py errors retry --all-failed --dry-run
