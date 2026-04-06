@@ -10,15 +10,25 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from local_document_search.cli import _format_database_target
-from local_document_search.config import AppConfig, DatabaseBackend, LargeFileIndexMode
+from local_document_search.config import (
+    AppConfig,
+    DatabaseBackend,
+    LargeFileIndexMode,
+    PostgreSQLSearchBackendType,
+)
 from local_document_search.persistence import database as database_module
-from local_document_search.persistence.search.postgresql_backend import PostgreSQLSearchBackend
+from local_document_search.persistence.search.postgresql_backend import (
+    PostgreSQLPGroongaSearchBackend,
+    PostgreSQLTrigramSearchBackend,
+)
+from local_document_search.services.search_service import SearchService
 
 
 def _make_config(
     *,
     project_root: Path,
     database_backend: DatabaseBackend,
+    postgresql_search_backend: PostgreSQLSearchBackendType = (PostgreSQLSearchBackendType.PG_TRGM),
     sqlite_db_path: Path | None = None,
     database_url: str | None = None,
 ) -> AppConfig:
@@ -26,6 +36,7 @@ def _make_config(
 
     return AppConfig(
         database_backend=database_backend,
+        postgresql_search_backend=postgresql_search_backend,
         sqlite_db_path=sqlite_db_path or project_root / "sqlite" / "search.db",
         database_url=database_url,
         search_dirs=tuple(),
@@ -165,7 +176,10 @@ def test_ensure_postgresql_search_objects_creates_pg_trgm_indexes(
     monkeypatch.setattr(database_module, "_postgresql_extension_exists", lambda *_args: False)
     monkeypatch.setattr(database_module, "_postgresql_index_exists", lambda *_args: False)
 
-    created = database_module._ensure_postgresql_search_objects(cast(Engine, engine))
+    created = database_module._ensure_postgresql_search_objects(
+        cast(Engine, engine),
+        PostgreSQLSearchBackendType.PG_TRGM,
+    )
 
     assert created is True
     executed_sql = "\n".join(connection.statements)
@@ -175,10 +189,33 @@ def test_ensure_postgresql_search_objects_creates_pg_trgm_indexes(
     assert "gin_trgm_ops" in executed_sql
 
 
-def test_postgresql_backend_builds_ilike_query_with_similarity_score() -> None:
+def test_ensure_postgresql_search_objects_creates_pgroonga_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """验证 PostgreSQL 初始化可按配置创建 PGroonga 扩展与全文索引。"""
+
+    connection = _FakeConnection()
+    engine = _FakeEngine(connection)
+    monkeypatch.setattr(database_module, "_postgresql_extension_exists", lambda *_args: False)
+    monkeypatch.setattr(database_module, "_postgresql_index_exists", lambda *_args: False)
+
+    created = database_module._ensure_postgresql_search_objects(
+        cast(Engine, engine),
+        PostgreSQLSearchBackendType.PGROONGA,
+    )
+
+    assert created is True
+    executed_sql = "\n".join(connection.statements)
+    assert "CREATE EXTENSION IF NOT EXISTS pgroonga" in executed_sql
+    assert "idx_documents_search_pgroonga" in executed_sql
+    assert "USING pgroonga" in executed_sql
+    assert "ARRAY[file_name::text, COALESCE(content_markdown, '')]" in executed_sql
+
+
+def test_postgresql_trigram_backend_builds_ilike_query_with_similarity_score() -> None:
     """验证 PostgreSQL 搜索后端使用 ILIKE 与 similarity 构造查询。"""
 
-    backend = PostgreSQLSearchBackend(sessionmaker())
+    backend = PostgreSQLTrigramSearchBackend(sessionmaker())
 
     query_sql, parameters = backend._build_ilike_query_sql(("alpha", "beta"), count_only=False)
 
@@ -193,10 +230,10 @@ def test_postgresql_backend_builds_ilike_query_with_similarity_score() -> None:
     assert parameters["raw_term_1"] == "beta"
 
 
-def test_postgresql_backend_count_query_omits_limit_and_raw_term_parameters() -> None:
+def test_postgresql_trigram_backend_count_query_omits_limit_and_raw_term_parameters() -> None:
     """验证 PostgreSQL 计数查询不会注入分页与评分参数。"""
 
-    backend = PostgreSQLSearchBackend(sessionmaker())
+    backend = PostgreSQLTrigramSearchBackend(sessionmaker())
 
     query_sql, parameters = backend._build_ilike_query_sql(("alpha",), count_only=True)
 
@@ -204,3 +241,53 @@ def test_postgresql_backend_count_query_omits_limit_and_raw_term_parameters() ->
     assert "LIMIT :limit" not in query_sql
     assert "OFFSET :offset" not in query_sql
     assert parameters == {"term_0": "%alpha%"}
+
+
+def test_postgresql_pgroonga_backend_builds_weighted_query() -> None:
+    """验证 PGroonga 搜索后端使用全文查询、权重与评分函数。"""
+
+    backend = PostgreSQLPGroongaSearchBackend(sessionmaker())
+
+    query_sql, parameters = backend._build_pgroonga_query_sql(("历史", "文档"), count_only=False)
+
+    assert "pgroonga_condition(" in query_sql
+    assert "ARRAY[:weight_file_name, :weight_content]" in query_sql
+    assert "pgroonga_score(tableoid, ctid) AS score" in query_sql
+    assert "idx_documents_search_pgroonga" in query_sql
+    assert parameters["query"] == '"历史" "文档"'
+    assert parameters["weight_file_name"] == 5
+    assert parameters["weight_content"] == 1
+
+
+def test_postgresql_pgroonga_backend_quotes_special_characters() -> None:
+    """验证 PGroonga 查询会对特殊字符做最小转义。"""
+
+    backend = PostgreSQLPGroongaSearchBackend(sessionmaker())
+
+    query = backend._build_pgroonga_query(('C++"17', r"foo\bar"))
+
+    assert query == r'"C++\"17" "foo\\bar"'
+
+
+def test_search_service_uses_pgroonga_backend_for_postgresql_when_configured() -> None:
+    """验证 SearchService 会按配置切换到 PGroonga 后端。"""
+
+    service = SearchService(
+        sessionmaker(),
+        DatabaseBackend.POSTGRESQL,
+        PostgreSQLSearchBackendType.PGROONGA,
+    )
+
+    assert isinstance(service._backend, PostgreSQLPGroongaSearchBackend)
+
+
+def test_search_service_uses_trigram_backend_for_postgresql_when_configured() -> None:
+    """验证 SearchService 会按配置保留 pg_trgm 后端。"""
+
+    service = SearchService(
+        sessionmaker(),
+        DatabaseBackend.POSTGRESQL,
+        PostgreSQLSearchBackendType.PG_TRGM,
+    )
+
+    assert isinstance(service._backend, PostgreSQLTrigramSearchBackend)

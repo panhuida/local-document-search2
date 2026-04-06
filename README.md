@@ -41,12 +41,21 @@ Copy-Item .env.example .env
 最少确认以下配置：
 
 - `DATABASE_BACKEND`
+- `POSTGRESQL_SEARCH_BACKEND`
 - `SQLITE_DB_PATH` 或 `DATABASE_URL`
 - `SEARCH_DIRS`
 
 PostgreSQL 建议显式使用 `psycopg` 驱动前缀：
 
 ```env
+DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
+```
+
+如果你希望 PostgreSQL 使用更适合中文场景的全文检索，请改成：
+
+```env
+DATABASE_BACKEND=postgresql
+POSTGRESQL_SEARCH_BACKEND=pgroonga
 DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/local_document_search
 ```
 
@@ -59,6 +68,7 @@ uv run python doc-cli.py db init
 如果你要把已有 SQLite 数据迁移到 PostgreSQL，请继续阅读：
 
 - `docs/engineering/SQLite_到_PostgreSQL_迁移指南.md`
+- `docs/engineering/PostgreSQL_PGroonga_接入说明.md`
 
 ### 4. 索引一个目录
 
@@ -125,6 +135,7 @@ uv run python run.py
 补充说明：
 
 - 当前 CLI 已支持 SQLite 与 PostgreSQL 两种数据库后端
+- PostgreSQL 目前支持 `pg_trgm` 与 `pgroonga` 两种搜索实现，中文全文检索建议优先使用 `pgroonga`
 - 如需从 SQLite 切换到 PostgreSQL，可使用 `db migrate-to-postgres`
 - `index --dry-run` 只预览扫描结果，不转换文件、不写库、不更新索引状态
 - `errors retry --dry-run` / `retry --dry-run` 只预览命中的失败或回退记录，不执行真实重试

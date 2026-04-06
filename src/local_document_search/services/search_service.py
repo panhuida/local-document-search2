@@ -8,10 +8,11 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from local_document_search.config import DatabaseBackend
+from local_document_search.config import DatabaseBackend, PostgreSQLSearchBackendType
 from local_document_search.exceptions import UnsupportedBackendError
 from local_document_search.persistence.search import (
-    PostgreSQLSearchBackend,
+    PostgreSQLPGroongaSearchBackend,
+    PostgreSQLTrigramSearchBackend,
     SearchBackend,
     SearchBackendRequest,
     SQLiteSearchBackend,
@@ -56,8 +57,17 @@ class SearchResult:
 class SearchService:
     """根据配置选择后端并对外提供统一搜索接口。"""
 
-    def __init__(self, session_factory: sessionmaker[Session], backend: DatabaseBackend) -> None:
-        self._backend = self._build_backend(session_factory, backend)
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        backend: DatabaseBackend,
+        postgresql_search_backend: PostgreSQLSearchBackendType,
+    ) -> None:
+        self._backend = self._build_backend(
+            session_factory,
+            backend,
+            postgresql_search_backend,
+        )
 
     def search(self, request: SearchRequest) -> SearchResult:
         """执行全文检索，并将后端结果转换为 Service 层模型。"""
@@ -87,10 +97,15 @@ class SearchService:
         self,
         session_factory: sessionmaker[Session],
         backend: DatabaseBackend,
+        postgresql_search_backend: PostgreSQLSearchBackendType,
     ) -> SearchBackend:
         """按数据库后端配置构造搜索实现。"""
         if backend is DatabaseBackend.SQLITE:
             return SQLiteSearchBackend(session_factory)
         if backend is DatabaseBackend.POSTGRESQL:
-            return PostgreSQLSearchBackend(session_factory)
+            if postgresql_search_backend is PostgreSQLSearchBackendType.PGROONGA:
+                return PostgreSQLPGroongaSearchBackend(session_factory)
+            if postgresql_search_backend is PostgreSQLSearchBackendType.PG_TRGM:
+                return PostgreSQLTrigramSearchBackend(session_factory)
+            raise UnsupportedBackendError(f"未知 PostgreSQL 搜索实现：{postgresql_search_backend}")
         raise UnsupportedBackendError(f"未知数据库后端：{backend}")

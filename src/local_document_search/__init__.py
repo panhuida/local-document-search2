@@ -77,7 +77,11 @@ def _create_service_container(config: AppConfig) -> ServiceContainer:
         config=config,
         index_service=index_service,
         index_task_service=IndexTaskService(index_service),
-        search_service=SearchService(session_factory, config.database_backend),
+        search_service=SearchService(
+            session_factory,
+            config.database_backend,
+            config.postgresql_search_backend,
+        ),
         error_record_service=error_record_service,
         retry_task_service=RetryTaskService(error_record_service),
         clean_service=CleanService(session_factory),

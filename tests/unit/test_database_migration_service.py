@@ -90,6 +90,24 @@ def test_database_migration_service_validates_request(tmp_path: Path) -> None:
         service._normalize_request(invalid_target_request)
 
 
+def test_database_migration_service_normalizes_postgresql_driver_alias(tmp_path: Path) -> None:
+    """验证迁移请求会把 PostgreSQL 连接串归一化到 psycopg。"""
+
+    source_path = tmp_path / "source.db"
+    source_path.write_bytes(b"sqlite")
+    service = DatabaseMigrationService()
+    normalized_request = service._normalize_request(
+        DatabaseMigrationRequest(
+            source_sqlite_path=source_path,
+            target_database_url="postgres://user:pass@localhost:5432/app",
+        )
+    )
+
+    assert normalized_request.target_database_url == (
+        "postgresql+psycopg://user:pass@localhost:5432/app"
+    )
+
+
 def test_database_migration_service_copies_documents_and_ingest_state(tmp_path: Path) -> None:
     """验证迁移服务的复制逻辑会保留主键与业务字段。"""
 

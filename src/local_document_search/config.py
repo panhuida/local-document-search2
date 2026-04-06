@@ -19,6 +19,13 @@ class DatabaseBackend(StrEnum):
     POSTGRESQL = "postgresql"
 
 
+class PostgreSQLSearchBackendType(StrEnum):
+    """PostgreSQL 下支持的搜索实现。"""
+
+    PG_TRGM = "pg_trgm"
+    PGROONGA = "pgroonga"
+
+
 class LargeFileIndexMode(StrEnum):
     """超大结构化文档的索引策略。"""
 
@@ -31,6 +38,7 @@ class AppConfig:
     """应用运行期配置对象。"""
 
     database_backend: DatabaseBackend
+    postgresql_search_backend: PostgreSQLSearchBackendType
     sqlite_db_path: Path
     database_url: str | None
     search_dirs: tuple[Path, ...]
@@ -81,6 +89,16 @@ def _parse_large_file_index_mode(raw_value: str | None) -> LargeFileIndexMode:
         return LargeFileIndexMode(normalized_value)
     except ValueError as exc:
         raise ConfigurationError("LARGE_FILE_INDEX_MODE 仅支持 full 或 metadata。") from exc
+
+
+def _parse_postgresql_search_backend(raw_value: str | None) -> PostgreSQLSearchBackendType:
+    """解析 PostgreSQL 搜索实现类型。"""
+
+    normalized_value = (raw_value or PostgreSQLSearchBackendType.PG_TRGM.value).strip().lower()
+    try:
+        return PostgreSQLSearchBackendType(normalized_value)
+    except ValueError as exc:
+        raise ConfigurationError("POSTGRESQL_SEARCH_BACKEND 仅支持 pg_trgm 或 pgroonga。") from exc
 
 
 def _parse_search_dirs(raw_value: str | None, project_root: Path) -> tuple[Path, ...]:
@@ -167,6 +185,9 @@ def load_app_config(force_reload: bool = False) -> AppConfig:
 
     _CONFIG_CACHE = AppConfig(
         database_backend=database_backend,
+        postgresql_search_backend=_parse_postgresql_search_backend(
+            os.getenv("POSTGRESQL_SEARCH_BACKEND")
+        ),
         sqlite_db_path=sqlite_db_path,
         database_url=os.getenv("DATABASE_URL"),
         search_dirs=_parse_search_dirs(os.getenv("SEARCH_DIRS"), project_root),

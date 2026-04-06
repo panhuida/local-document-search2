@@ -436,6 +436,11 @@ def db_init(
         database_target = _format_database_target(config)
         result = {
             "database_backend": config.database_backend.value,
+            "postgresql_search_backend": (
+                config.postgresql_search_backend.value
+                if config.database_backend is DatabaseBackend.POSTGRESQL
+                else None
+            ),
             "database_target": database_target,
             "status": "initialized",
         }
@@ -482,6 +487,7 @@ def db_migrate_to_postgres(
             DatabaseMigrationRequest(
                 source_sqlite_path=source_sqlite_path,
                 target_database_url=target_database_url,
+                postgresql_search_backend=config.postgresql_search_backend,
                 include_ingest_state=include_ingest_state,
                 truncate_target=truncate_target,
             )

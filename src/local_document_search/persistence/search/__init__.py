@@ -6,11 +6,17 @@ from local_document_search.persistence.search.base import (
     SearchBackendRequest,
     SearchBackendResult,
 )
-from local_document_search.persistence.search.postgresql_backend import PostgreSQLSearchBackend
+from local_document_search.persistence.search.postgresql_backend import (
+    PostgreSQLPGroongaSearchBackend,
+    PostgreSQLSearchBackend,
+    PostgreSQLTrigramSearchBackend,
+)
 from local_document_search.persistence.search.sqlite_backend import SQLiteSearchBackend
 
 __all__ = [
     "PostgreSQLSearchBackend",
+    "PostgreSQLPGroongaSearchBackend",
+    "PostgreSQLTrigramSearchBackend",
     "SearchBackend",
     "SearchBackendHit",
     "SearchBackendRequest",
