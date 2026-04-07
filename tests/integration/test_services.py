@@ -1963,11 +1963,13 @@ def test_create_app_uses_explicit_config_for_service_container(test_environment:
     assert services.config.flask_port == 5999
 
 
-def test_create_app_renders_cdn_tailwind_by_default(test_environment: Path) -> None:
-    """验证默认配置下页面继续加载 Tailwind CDN。"""
+def test_create_app_renders_cdn_tailwind_when_enabled(test_environment: Path) -> None:
+    """验证显式切换到 CDN 模式后页面加载 Tailwind CDN。"""
 
     del test_environment
-    app = create_app()
+    base_config = load_app_config(force_reload=True)
+    custom_config = replace(base_config, tailwind_asset_mode=TailwindAssetMode.CDN)
+    app = create_app(config=custom_config)
 
     with app.test_client() as client:
         response = client.get("/", follow_redirects=True)

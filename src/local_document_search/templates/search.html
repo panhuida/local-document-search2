@@ -425,7 +425,7 @@
     if (history.length > RECENT_VISIBLE_COUNT) {
       recentItems.forEach((item, index) => {
         if (index >= RECENT_VISIBLE_COUNT) {
-          item.classList.add("hidden");
+          item.hidden = true;
         }
       });
 
@@ -440,7 +440,7 @@
         expanded = !expanded;
         recentItems.forEach((item, index) => {
           if (index >= RECENT_VISIBLE_COUNT) {
-            item.classList.toggle("hidden", !expanded);
+            item.hidden = !expanded;
           }
         });
         toggleButton.textContent = expanded ? "收起" : `更多 ${hiddenCount}`;
