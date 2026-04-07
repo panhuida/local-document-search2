@@ -64,3 +64,6 @@ htmlcov/
 # 其他
 .DS_Store
 Thumbs.db
+
+# Tailwind standalone CLI
+tools/tailwind/

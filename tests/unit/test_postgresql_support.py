@@ -15,6 +15,7 @@ from local_document_search.config import (
     DatabaseBackend,
     LargeFileIndexMode,
     SearchMode,
+    TailwindAssetMode,
 )
 from local_document_search.persistence import database as database_module
 from local_document_search.persistence.search.postgresql_backend import (
@@ -44,6 +45,7 @@ def _make_config(
         flask_host="127.0.0.1",
         flask_port=5000,
         flask_debug=False,
+        tailwind_asset_mode=TailwindAssetMode.CDN,
         log_level="INFO",
         markitdown_timeout_seconds=90,
         large_file_threshold_mb=15,

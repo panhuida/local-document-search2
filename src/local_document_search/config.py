@@ -33,6 +33,13 @@ class LargeFileIndexMode(StrEnum):
     METADATA = "metadata"
 
 
+class TailwindAssetMode(StrEnum):
+    """Web 页面 Tailwind 资源来源。"""
+
+    CDN = "cdn"
+    LOCAL = "local"
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """应用运行期配置对象。"""
@@ -46,6 +53,7 @@ class AppConfig:
     flask_host: str
     flask_port: int
     flask_debug: bool
+    tailwind_asset_mode: TailwindAssetMode
     log_level: str
     markitdown_timeout_seconds: int
     large_file_threshold_mb: int
@@ -99,6 +107,16 @@ def _parse_search_mode(raw_value: str | None, *, config_name: str) -> SearchMode
         return SearchMode(normalized_value)
     except ValueError as exc:
         raise ConfigurationError(f"{config_name} 仅支持 fulltext 或 fuzzy。") from exc
+
+
+def _parse_tailwind_asset_mode(raw_value: str | None) -> TailwindAssetMode:
+    """解析 Web 页面 Tailwind 资源来源。"""
+
+    normalized_value = (raw_value or TailwindAssetMode.CDN.value).strip().lower()
+    try:
+        return TailwindAssetMode(normalized_value)
+    except ValueError as exc:
+        raise ConfigurationError("TAILWIND_ASSET_MODE 仅支持 cdn 或 local。") from exc
 
 
 def _parse_postgresql_default_search_mode() -> SearchMode:
@@ -221,6 +239,7 @@ def load_app_config(force_reload: bool = False) -> AppConfig:
         flask_host=os.getenv("FLASK_HOST", "127.0.0.1"),
         flask_port=int(os.getenv("FLASK_PORT", "5000")),
         flask_debug=_parse_bool(os.getenv("FLASK_DEBUG"), False),
+        tailwind_asset_mode=_parse_tailwind_asset_mode(os.getenv("TAILWIND_ASSET_MODE")),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         markitdown_timeout_seconds=_parse_positive_int(
             os.getenv("MARKITDOWN_TIMEOUT_SECONDS"),

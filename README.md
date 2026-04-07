@@ -32,6 +32,33 @@ uv sync
 uv sync --extra dev
 ```
 
+如果你只想运行应用，可以跳过 Tailwind 的本地构建，默认会使用官方 CDN。
+
+如果你要在本机离线修改 Web UI 的 Tailwind 样式，请先把 `.env` 里的 `TAILWIND_ASSET_MODE` 改成 `local`，再按当前系统执行：
+
+Windows PowerShell：
+
+```powershell
+.\scripts\install-tailwind-standalone.ps1
+.\scripts\tailwind.ps1 build
+```
+
+Ubuntu 24.04 bash：
+
+```bash
+bash ./scripts/install-tailwind-standalone.sh
+bash ./scripts/tailwind.sh build
+```
+
+说明：
+
+- `TAILWIND_ASSET_MODE=cdn` 是默认值，页面继续使用 `https://cdn.tailwindcss.com`
+- `TAILWIND_ASSET_MODE=local` 时，页面改为加载本地编译产物 `src/local_document_search/static/css/tailwind.css`
+- 编译输入文件位于 `src/local_document_search/static_src/tailwind.css`
+- 安装脚本会下载固定版本 `v4.1.18` 的 standalone CLI 到 `tools/tailwind/`
+- 日常开发可使用 `.\scripts\tailwind.ps1 watch` 或 `bash ./scripts/tailwind.sh watch` 持续监听模板变更
+- 如果只运行应用、不改样式，可以完全不安装 standalone CLI
+
 ### 2. 创建配置文件
 
 ```powershell
@@ -44,6 +71,7 @@ Copy-Item .env.example .env
 - `POSTGRESQL_DEFAULT_SEARCH_MODE`
 - `SQLITE_DB_PATH` 或 `DATABASE_URL`
 - `SEARCH_DIRS`
+- `TAILWIND_ASSET_MODE`
 
 PostgreSQL 建议显式使用 `psycopg` 驱动前缀：
 
@@ -104,6 +132,20 @@ uv run python run.py
 默认访问地址：`http://127.0.0.1:5000`
 
 到这一步，你应该已经跑通了“初始化 -> 索引 -> 搜索 -> 打开 Web”的完整闭环。
+
+如果你正在调整 Web 模板样式，建议额外开一个终端执行：
+
+Windows PowerShell：
+
+```powershell
+.\scripts\tailwind.ps1 watch
+```
+
+Ubuntu 24.04 bash：
+
+```bash
+bash ./scripts/tailwind.sh watch
+```
 
 如果你计划在 Ubuntu 24.04 上运行，请继续阅读：
 
@@ -173,6 +215,7 @@ uv run python doc-cli.py clean "D:\docs" --dry-run
 
 - `scripts\doc-cli.cmd`
 - `scripts\doc-cli.ps1`
+- `scripts/doc-cli.sh`
 
 把项目的 `scripts` 目录加入当前用户的 `PATH`。
 
@@ -189,7 +232,16 @@ doc-cli search "历史"
 
 - `doc-cli.cmd` 适用于 `cmd`、PowerShell、Windows Terminal，兼容性最好
 - `doc-cli.ps1` 提供 PowerShell 原生入口
-- 两个脚本都会自动定位仓库根目录并转发到 `uv run python doc-cli.py`，不依赖当前工作目录
+- `doc-cli.sh` 适用于 Ubuntu 24.04、WSL、Git Bash 等 bash 环境
+- 三个脚本都会自动定位仓库根目录并转发到 `uv run python doc-cli.py`，不依赖当前工作目录
+
+Ubuntu 24.04 / bash 使用示例：
+
+```bash
+bash ./scripts/doc-cli.sh --help
+bash ./scripts/doc-cli.sh index "/data/documents"
+bash ./scripts/doc-cli.sh search "测试"
+```
 
 
 ## 项目结构

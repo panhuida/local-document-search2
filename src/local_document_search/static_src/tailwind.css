@@ -1,0 +1,9 @@
+@import "tailwindcss" source("../templates");
+
+@theme {
+  --color-brand-blue: #4285f4;
+  --color-brand-red: #ea4335;
+  --color-brand-yellow: #fbbc05;
+  --color-brand-green: #34a853;
+  --font-sans: "Trebuchet MS", "Noto Sans SC", "Segoe UI", sans-serif;
+}

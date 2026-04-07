@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}本地文档搜索助手{% endblock %}</title>
+  {% if tailwind_asset_mode == "cdn" %}
   <script>
     tailwind = {
       config: {
@@ -26,6 +27,9 @@
     };
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
+  {% else %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
+  {% endif %}
   <style>
     :root {
       color-scheme: light;

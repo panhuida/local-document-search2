@@ -19,7 +19,12 @@ from local_document_search import (
     build_service_container,
     create_app,
 )
-from local_document_search.config import DatabaseBackend, SearchMode, load_app_config
+from local_document_search.config import (
+    DatabaseBackend,
+    SearchMode,
+    TailwindAssetMode,
+    load_app_config,
+)
 from local_document_search.converters import ConverterFactory
 from local_document_search.converters.base import ConversionResult, ConversionStatus, ConversionType
 from local_document_search.exceptions import IndexCancelledError
@@ -1956,3 +1961,35 @@ def test_create_app_uses_explicit_config_for_service_container(test_environment:
     assert isinstance(services, ServiceContainer)
     assert app.config["FLASK_PORT"] == 5999
     assert services.config.flask_port == 5999
+
+
+def test_create_app_renders_cdn_tailwind_by_default(test_environment: Path) -> None:
+    """验证默认配置下页面继续加载 Tailwind CDN。"""
+
+    del test_environment
+    app = create_app()
+
+    with app.test_client() as client:
+        response = client.get("/", follow_redirects=True)
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'src="https://cdn.tailwindcss.com"' in html
+    assert "tailwind = {" in html
+
+
+def test_create_app_renders_local_tailwind_when_enabled(test_environment: Path) -> None:
+    """验证切换到本地模式后页面改为加载本地 Tailwind 产物。"""
+
+    del test_environment
+    base_config = load_app_config(force_reload=True)
+    custom_config = replace(base_config, tailwind_asset_mode=TailwindAssetMode.LOCAL)
+    app = create_app(config=custom_config)
+
+    with app.test_client() as client:
+        response = client.get("/", follow_redirects=True)
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'href="/static/css/tailwind.css"' in html
+    assert "https://cdn.tailwindcss.com" not in html

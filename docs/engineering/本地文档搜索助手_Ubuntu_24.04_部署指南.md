@@ -41,7 +41,7 @@ Ubuntu 24.04 上当前支持情况如下：
 
 - 旧版 Office 正文提取当前依赖 Windows 本机 Office / COM 自动化；Ubuntu 24.04 下会自动回退为元数据索引
 - “打开文件”“打开所在目录”依赖 `xdg-open` 和桌面环境；在无桌面的服务器环境中，这类操作通常不可用
-- `scripts/doc-cli.cmd`、`scripts/doc-cli.ps1` 是 Windows 包装脚本，Ubuntu 24.04 下不适用
+- 项目额外提供 `scripts/doc-cli.sh` 作为 Ubuntu 24.04 / bash 包装脚本
 
 ## 2. 环境准备
 
@@ -250,14 +250,21 @@ Web 页面中的：
 - Ubuntu 桌面版：通常可以使用
 - Ubuntu Server 无桌面：通常不可用或无实际效果
 
-### 7.3 Windows 包装脚本不可用
+### 7.3 CLI 包装脚本
 
 以下脚本只适用于 Windows：
 
 - `scripts/doc-cli.cmd`
 - `scripts/doc-cli.ps1`
 
-Ubuntu 24.04 下请直接使用：
+Ubuntu 24.04 下推荐使用：
+
+```bash
+bash ./scripts/doc-cli.sh --help
+bash ./scripts/doc-cli.sh --help-plain
+```
+
+如果你不想使用包装脚本，也可以直接执行：
 
 ```bash
 uv run python doc-cli.py --help

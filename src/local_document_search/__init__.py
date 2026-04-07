@@ -131,8 +131,15 @@ def create_app(
     app.config["FLASK_HOST"] = current_config.flask_host
     app.config["FLASK_PORT"] = current_config.flask_port
     app.config["FLASK_DEBUG"] = current_config.flask_debug
+    app.config["TAILWIND_ASSET_MODE"] = current_config.tailwind_asset_mode.value
     app.extensions["services"] = current_services
     app.add_template_filter(format_datetime_for_local_display, "local_datetime")
+
+    @app.context_processor
+    def inject_web_asset_settings() -> dict[str, str]:
+        """向模板注入静态资源选择配置。"""
+
+        return {"tailwind_asset_mode": current_config.tailwind_asset_mode.value}
 
     from local_document_search.routes import web_blueprint
 
