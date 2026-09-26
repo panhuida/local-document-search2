@@ -310,3 +310,7 @@ uv run python doc-cli.py retry --all-failed --include-fallback
 - 真失败记录的 `status` 为 `failed`
 - 回退为元数据索引的记录 `status` 为 `fallback`
 - 搜索结果仍会包含 `completed` 和 `fallback` 文档；只有 `failed` 文档不会出现在检索结果中
+
+
+## 个人主页与技术博客
+[panhuida](https://panhuida.pages.dev)
