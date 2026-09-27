@@ -314,5 +314,3 @@ uv run python doc-cli.py retry --all-failed --include-fallback
 
 ## 关于作者
 - **个人主页与技术博客**：[panhuida](https://panhuida.pages.dev)
-- **微信**：`panhuida_2025`
-- **邮箱**：`panhuida@qq.com`
